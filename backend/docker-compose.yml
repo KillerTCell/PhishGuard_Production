@@ -10,6 +10,8 @@ services:
       POSTGRES_DB: phishguard
       POSTGRES_USER: phishguard
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
@@ -41,8 +43,6 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      nginx:
-        condition: service_started
     volumes:
       - exports:/mnt/exports
     expose:
