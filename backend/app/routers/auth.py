@@ -1,17 +1,26 @@
-"""Section 4.1 -- FR-01, UC-01: Authentication endpoints.
+"""Section 4.1 — FR-01, UC-01: Authentication endpoints.
 
-POST /auth/register        -- new org or invite path
-POST /auth/login           -- bcrypt verify, Redis rate-limit
-GET  /auth/me              -- current user profile
-POST /auth/refresh         -- rotate refresh cookie, issue new access token
-POST /auth/logout          -- blacklist refresh JTI, clear cookie
-POST /auth/forgot-password -- send HMAC reset link (always 202)
-POST /auth/reset-password  -- consume signed token, hash new password
-POST /auth/invite          -- admin creates invite_token, sends email
-POST /auth/accept-invite   -- validate token, create user
+POST /auth/register        — new org or invite path
+POST /auth/login           — bcrypt verify, per-IP Redis rate-limit
+GET  /auth/me              — current user profile + forwarding address
+POST /auth/refresh         — rotate refresh cookie, issue new access token
+POST /auth/logout          — blacklist refresh JTI, clear cookie (204)
+POST /auth/forgot-password — send HMAC reset link; always 202 (anti-enum)
+POST /auth/reset-password  — consume signed token, set new password
+POST /auth/invite          — admin: INSERT InviteToken, send Resend email
+POST /auth/accept-invite   — public: validate token, create user, issue tokens
+
+Security controls (Section 7):
+  - Access tokens in memory only (NFR-2); never in localStorage
+  - Refresh tokens: HttpOnly Secure SameSite=Strict cookie, path=/api/v1/auth
+  - bcrypt rounds=12 for all password hashes (NFR-2)
+  - Per-IP Redis rate limit: 5 attempts / 15 min (S-06 fix)
+  - Audit trail: login_success | login_failed | login_blocked_inactive |
+    login_blocked | user_invited via audit_service.write_audit_log
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import secrets
 import uuid
@@ -19,6 +28,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import redis.asyncio as aioredis
+import resend as _resend
 import structlog
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
@@ -30,13 +40,11 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_access_token,
-    fernet_encrypt,
     hash_password,
-    sign_digest_token,
+    is_jti_blacklisted,
     verify_password,
 )
-from app.dependencies import CurrentUser, get_current_user, get_db, get_redis
-from app.models.audit_log import AuditLog
+from app.dependencies import CurrentUser, get_current_user, get_db, get_redis, require_admin
 from app.models.invite_token import InviteToken
 from app.models.organisation import Organisation
 from app.models.password_reset_token import PasswordResetToken
@@ -55,64 +63,98 @@ from app.schemas.auth import (
     RegisterResponse,
     ResetPasswordRequest,
 )
+from app.services import audit_service, forwarding_service, org_service
 
-logger = structlog.get_logger(__name__)
+log = structlog.get_logger(__name__)
 router = APIRouter(tags=["auth"])
 
 _REFRESH_COOKIE = "refresh_token"
 _REFRESH_TTL_DAYS = 7
-_LOGIN_RATE_KEY = "login_attempts:{ip}"
 _LOGIN_MAX_ATTEMPTS = 5
-_LOGIN_WINDOW_SECONDS = 900  # 15 min
+_LOGIN_WINDOW_SECONDS = 900   # 15 minutes
 _RESET_TOKEN_TTL_HOURS = 1
 _INVITE_TTL_HOURS = 48
 
 
 # ---------------------------------------------------------------------------
-# Helpers
+# Cookie helpers
 # ---------------------------------------------------------------------------
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
-    """Set the refresh token as HttpOnly Secure SameSite=Strict cookie (NFR-2)."""
+    """Set the refresh token as HttpOnly Secure SameSite=Strict cookie (NFR-2).
+
+    Path is scoped to ``/api/v1/auth`` so the cookie is only transmitted to
+    auth endpoints and never sent with API data requests.
+
+    Args:
+        response: FastAPI Response object for the current request.
+        token:    Encoded refresh JWT string.
+    """
     response.set_cookie(
         key=_REFRESH_COOKIE,
         value=token,
         httponly=True,
         secure=True,
         samesite="strict",
-        max_age=_REFRESH_TTL_DAYS * 86400,
-        path="/api/v1/auth",  # narrow scope — only sent to auth endpoints
+        max_age=_REFRESH_TTL_DAYS * 86_400,
+        path="/api/v1/auth",
     )
 
 
 def _clear_refresh_cookie(response: Response) -> None:
-    """Expire the refresh cookie."""
+    """Expire the refresh cookie by deleting it.
+
+    Args:
+        response: FastAPI Response object for the current request.
+    """
     response.delete_cookie(key=_REFRESH_COOKIE, path="/api/v1/auth")
 
 
-async def _write_audit(
-    db: AsyncSession,
-    action: str,
-    org_id: Optional[uuid.UUID],
-    user_id: Optional[uuid.UUID],
-    request: Request,
-    detail: Optional[dict] = None,
-) -> None:
-    """Append an audit_log row.  Errors are swallowed so auth never fails due to logging."""
+# ---------------------------------------------------------------------------
+# Resend transactional email helper
+# ---------------------------------------------------------------------------
+
+
+async def _send_email(to: str, subject: str, html: str) -> None:
+    """Send a transactional email via Resend.  Swallows all exceptions.
+
+    Email delivery failure MUST NOT cause the enclosing route to fail.
+    Errors are logged at ERROR level so operators can investigate delivery
+    issues without impacting user-facing behaviour.
+
+    Args:
+        to:      Recipient email address.
+        subject: Email subject line.
+        html:    HTML email body.
+    """
     try:
-        ip = request.client.host if request.client else None
-        log = AuditLog(
-            org_id=org_id,
-            user_id=user_id,
-            action=action,
-            ip_address=ip,
-            request_id=request.headers.get("x-request-id"),
-            detail=detail or {},
+        _resend.api_key = settings.RESEND_API_KEY
+        sender = f"PhishGuard <noreply@{settings.FORWARDING_DOMAIN}>"
+        params: _resend.Emails.SendParams = {  # type: ignore[attr-defined]
+            "from": sender,
+            "to": [to],
+            "subject": subject,
+            "html": html,
+        }
+        await asyncio.to_thread(_resend.Emails.send, params)
+        log.info("email_sent", to=to, subject=subject)
+    except Exception as exc:
+        log.error(
+            "resend_email_failed",
+            to=to,
+            subject=subject,
+            error=str(exc),
+            exc_type=type(exc).__name__,
         )
-        db.add(log)
-    except Exception:
-        logger.warning("audit_write_failed", action=action)
+
+
+def _frontend_url() -> str:
+    """Return the primary frontend origin from CORS_ORIGINS (first entry).
+
+    Used to construct reset / invite links embedded in transactional emails.
+    """
+    return settings.CORS_ORIGINS.split(",")[0].strip()
 
 
 # ---------------------------------------------------------------------------
@@ -133,17 +175,32 @@ async def register(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> RegisterResponse:
-    """Register a new user.
+    """Register a new user via one of two paths.
 
-    Two paths:
-      - ``org_name`` provided: create new organisation + first admin user.
-      - ``invite_token`` provided: validate token, join existing org.
+    **New-organisation path** (``org_name`` provided):
+      - Create a new organisation with a unique forwarding slug
+        (:func:`~app.services.org_service.create_organisation`).
+      - INSERT the first user with ``role='admin'``.
 
-    A-08 fix: 422 if neither org_name nor invite_token is supplied (enforced
-    in RegisterRequest.require_org_or_invite validator).
+    **Invite path** (``invite_token`` provided):
+      - Validate the token (not used, not expired).
+      - INSERT the user into the invited organisation with the role from the token.
+      - Mark the invite as consumed (``used_at = now()``).
+
+    A-08 fix: 422 if neither ``org_name`` nor ``invite_token`` is supplied
+    (enforced first by ``RegisterRequest.require_org_or_invite``, then
+    re-validated here for explicit HTTP error messaging).
+
+    Bcrypt cost factor 12 is applied in :func:`~app.core.security.hash_password`.
     """
+    if not body.org_name and not body.invite_token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide org_name for a new organisation or invite_token to join one.",
+        )
+
     if body.invite_token:
-        # ── Invite path ──────────────────────────────────────────────────
+        # ── Invite path ──────────────────────────────────────────────────────
         token_hash = hashlib.sha256(body.invite_token.encode()).hexdigest()
         result = await db.execute(
             select(InviteToken).where(
@@ -158,7 +215,6 @@ async def register(
                 detail="Invite token is invalid or expired",
             )
 
-        # Check email uniqueness
         existing = (
             await db.execute(select(User).where(User.email == body.email))
         ).scalar_one_or_none()
@@ -177,18 +233,20 @@ async def register(
         )
         db.add(user)
         invite.used_at = datetime.now(timezone.utc)
-
-        org = (
-            await db.execute(select(Organisation).where(Organisation.id == invite.org_id))
-        ).scalar_one()
-        forwarding_address = (
-            f"scan+{org.forwarding_address_slug}@{settings.FORWARDING_DOMAIN}"
-        )
         await db.flush()
-        await _write_audit(db, "login_success", org.id, user.id, request)
+        await db.refresh(user)
+
+        org: Organisation = (
+            await db.execute(
+                select(Organisation).where(Organisation.id == invite.org_id)
+            )
+        ).scalar_one()
+        fwd_address = forwarding_service.build_forwarding_address(
+            org.forwarding_address_slug or ""
+        )
 
     else:
-        # ── New organisation path ─────────────────────────────────────────
+        # ── New-organisation path ─────────────────────────────────────────────
         existing = (
             await db.execute(select(User).where(User.email == body.email))
         ).scalar_one_or_none()
@@ -198,13 +256,9 @@ async def register(
                 detail="Email already registered",
             )
 
-        slug = secrets.token_urlsafe(8)
-        org = Organisation(
-            name=body.org_name,
-            forwarding_address_slug=slug,
-        )
-        db.add(org)
-        await db.flush()  # populate org.id
+        # F-01 fix: always use org_service so the forwarding slug is generated
+        # deterministically (slugify + 4-char hex suffix) rather than random bytes.
+        org = await org_service.create_organisation(db, body.org_name)  # type: ignore[arg-type]
 
         user = User(
             org_id=org.id,
@@ -214,11 +268,12 @@ async def register(
             role="admin",
         )
         db.add(user)
-        forwarding_address = (
-            f"scan+{slug}@{settings.FORWARDING_DOMAIN}"
-        )
         await db.flush()
-        await _write_audit(db, "login_success", org.id, user.id, request)
+        await db.refresh(user)
+
+        fwd_address = forwarding_service.build_forwarding_address(
+            org.forwarding_address_slug or ""
+        )
 
     access_token = create_access_token(
         user_id=str(user.id),
@@ -228,12 +283,23 @@ async def register(
     refresh_token = create_refresh_token(user_id=str(user.id))
     _set_refresh_cookie(response, refresh_token)
 
+    await audit_service.write_audit_log(
+        db,
+        org_id=user.org_id,
+        action="login_success",
+        user_id=user.id,
+        target_type="user",
+        target_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        request_id=request.headers.get("x-request-id"),
+    )
+
     return RegisterResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         role=user.role,
         org_id=user.org_id,
-        forwarding_address=forwarding_address,
+        forwarding_address=fwd_address,
     )
 
 
@@ -256,54 +322,102 @@ async def login(
 ) -> LoginResponse:
     """Verify credentials and issue access + refresh tokens.
 
-    Rate limit: 5 attempts / 15 min per IP (Redis INCR).
-    429 on 5th attempt with Retry-After: 900 header.
+    Execution order (Section 7, S-06 fix):
 
-    Audit events: login_success | login_failed | login_blocked_inactive.
+    1. SELECT user — 401 if not found (no audit; no org_id available).
+    2. Check ``is_active`` — 403 + ``login_blocked_inactive`` audit if false.
+    3. Redis INCR ``login_attempts:{ip}`` (EXPIRE 900 on first attempt).
+    4. Rate-limit check — 429 + Retry-After:900 + ``login_blocked`` audit
+       if count ≥ 5.
+    5. ``verify_password()`` — 401 + ``login_failed`` audit [S-06] if wrong.
+    6. Success — clear rate counter, issue tokens, set cookie, update
+       ``last_active_at``, fetch ``unread_count`` from Redis, audit ``login_success``.
     """
     client_ip = request.client.host if request.client else "unknown"
     rate_key = f"login_attempts:{client_ip}"
 
-    # Rate limit check
+    # 1. Fetch user — generic 401 if not found (no audit: no org_id yet)
+    result = await db.execute(select(User).where(User.email == body.email))
+    user: Optional[User] = result.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    # 2. Active check — before rate-limit so inactive accounts always get 403
+    if not user.is_active:
+        await audit_service.write_audit_log(
+            db,
+            org_id=user.org_id,
+            action="login_blocked_inactive",
+            user_id=user.id,
+            target_type="user",
+            target_id=user.id,
+            ip_address=client_ip,
+            request_id=request.headers.get("x-request-id"),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated",
+        )
+
+    # 3. Rate-limit: INCR; set EXPIRE only on first attempt (idempotent after)
     attempts = await redis.incr(rate_key)
     if attempts == 1:
         await redis.expire(rate_key, _LOGIN_WINDOW_SECONDS)
+
+    # 4. Reject if rate limit exceeded
     if attempts > _LOGIN_MAX_ATTEMPTS:
+        await audit_service.write_audit_log(
+            db,
+            org_id=user.org_id,
+            action="login_blocked",
+            user_id=user.id,
+            target_type="user",
+            target_id=user.id,
+            ip_address=client_ip,
+            request_id=request.headers.get("x-request-id"),
+            detail={"attempts": attempts, "limit": _LOGIN_MAX_ATTEMPTS},
+        )
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Try again in 15 minutes.",
             headers={"Retry-After": str(_LOGIN_WINDOW_SECONDS)},
         )
 
-    result = await db.execute(select(User).where(User.email == body.email))
-    user: Optional[User] = result.scalar_one_or_none()
-
-    if user is None or not verify_password(body.password, user.password_hash):
-        await _write_audit(db, "login_failed", None, None, request, {"email": body.email})
+    # 5. Password verification (S-06 fix — audit login_failed separately)
+    if not verify_password(body.password, user.password_hash):
+        await audit_service.write_audit_log(
+            db,
+            org_id=user.org_id,
+            action="login_failed",
+            user_id=user.id,
+            target_type="user",
+            target_id=user.id,
+            ip_address=client_ip,
+            request_id=request.headers.get("x-request-id"),
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
         )
 
-    if not user.is_active:
-        await _write_audit(db, "login_blocked_inactive", user.org_id, user.id, request)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Account is deactivated",
-        )
-
-    # Reset rate counter on success
+    # 6. Success ─────────────────────────────────────────────────────────────
+    # Clear rate counter so a future failed attempt starts fresh
     await redis.delete(rate_key)
 
-    # Update last_active_at
+    # Update last_active_at (debounced on the client side — always write here)
     user.last_active_at = datetime.now(timezone.utc)
 
-    # Fetch org details for response
-    org = (
-        await db.execute(select(Organisation).where(Organisation.id == user.org_id))
+    # Fetch org info for response
+    org: Organisation = (
+        await db.execute(
+            select(Organisation).where(Organisation.id == user.org_id)
+        )
     ).scalar_one()
 
-    # Unread count from Redis
+    # Unread notification count (Section 5.1)
     unread_raw = await redis.get(f"notif:{user.id}:unread")
     unread_count = int(unread_raw) if unread_raw else 0
 
@@ -315,7 +429,16 @@ async def login(
     refresh_token = create_refresh_token(user_id=str(user.id))
     _set_refresh_cookie(response, refresh_token)
 
-    await _write_audit(db, "login_success", user.org_id, user.id, request)
+    await audit_service.write_audit_log(
+        db,
+        org_id=user.org_id,
+        action="login_success",
+        user_id=user.id,
+        target_type="user",
+        target_id=user.id,
+        ip_address=client_ip,
+        request_id=request.headers.get("x-request-id"),
+    )
 
     return LoginResponse(
         access_token=access_token,
@@ -343,8 +466,9 @@ async def me(
 ) -> MeResponse:
     """Return the authenticated user's profile.
 
-    Required on every app load to populate the top bar (role, name, org).
-    1 DB fetch + 1 Redis GET for unread_count.  No side effects.
+    Fetches the organisation name and forwarding slug in a single JOIN query.
+    Reads the unread notification count from Redis (``notif:{user_id}:unread``).
+    No writes; no side effects.
     """
     result = await db.execute(
         select(User, Organisation)
@@ -357,8 +481,8 @@ async def me(
     unread_raw = await redis.get(f"notif:{user.id}:unread")
     unread_count = int(unread_raw) if unread_raw else 0
 
-    forwarding_address = (
-        f"scan+{org.forwarding_address_slug}@{settings.FORWARDING_DOMAIN}"
+    fwd_address = forwarding_service.build_forwarding_address(
+        org.forwarding_address_slug or ""
     )
 
     return MeResponse(
@@ -371,7 +495,7 @@ async def me(
         is_active=user.is_active,
         last_active_at=user.last_active_at,
         unread_count=unread_count,
-        forwarding_address=forwarding_address,
+        forwarding_address=fwd_address,
     )
 
 
@@ -392,10 +516,15 @@ async def refresh_tokens(
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
 ) -> RefreshResponse:
-    """Issue a new access token using the refresh cookie.
+    """Issue a new access token using the HttpOnly refresh cookie.
 
-    JTI blacklist check prevents replay.  Old JTI is blacklisted immediately.
-    New refresh cookie is rotated (TTL reset).
+    Refresh token rotation steps:
+      1. Decode and validate the refresh JWT.
+      2. Confirm it carries ``type='refresh'``.
+      3. Check the JTI is not blacklisted (replay prevention).
+      4. Fetch the user (must still exist and be active).
+      5. Blacklist the old JTI for its remaining TTL.
+      6. Issue a new access token and rotate the refresh cookie.
     """
     from jose import JWTError
 
@@ -420,14 +549,14 @@ async def refresh_tokens(
         )
 
     jti: str = payload.get("jti", "")
-    if await redis.exists(f"blacklist:{jti}"):
+    if await is_jti_blacklisted(redis, jti):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has been revoked",
         )
 
     user_id_str: str = payload.get("sub", "")
-    user = (
+    user: Optional[User] = (
         await db.execute(select(User).where(User.id == uuid.UUID(user_id_str)))
     ).scalar_one_or_none()
     if user is None or not user.is_active:
@@ -436,9 +565,9 @@ async def refresh_tokens(
             detail="User not found or inactive",
         )
 
-    # Blacklist old JTI
+    # Blacklist the old JTI for its remaining natural lifetime
     remaining = int(payload.get("exp", 0)) - int(datetime.now(timezone.utc).timestamp())
-    if remaining > 0:
+    if jti and remaining > 0:
         await blacklist_jti(redis, jti, remaining)
 
     access_token = create_access_token(
@@ -470,22 +599,23 @@ async def logout(
 ) -> None:
     """Blacklist the refresh token JTI and clear the cookie.
 
-    Access tokens are short-lived (8h) and expire naturally; only the
-    refresh token needs explicit invalidation (NFR-2).
+    Access tokens (8h) expire naturally and are not stored server-side.
+    Only the refresh token's JTI needs explicit invalidation (NFR-2).
+    Silently succeeds even if the token is absent or already invalid.
     """
     from jose import JWTError
 
     if refresh_token:
         try:
             payload = decode_access_token(refresh_token)
-            jti = payload.get("jti", "")
+            jti: str = payload.get("jti", "")
             remaining = int(payload.get("exp", 0)) - int(
                 datetime.now(timezone.utc).timestamp()
             )
             if jti and remaining > 0:
                 await blacklist_jti(redis, jti, remaining)
         except JWTError:
-            pass  # already invalid — clear cookie regardless
+            pass  # already expired or invalid — clear the cookie regardless
 
     _clear_refresh_cookie(response)
 
@@ -498,17 +628,27 @@ async def logout(
 @router.post(
     "/auth/forgot-password",
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Initiate password reset (always 202 to prevent enumeration)",
+    summary="Initiate password reset (always 202 — prevents user enumeration)",
 )
 async def forgot_password(
     body: ForgotPasswordRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    """Send a password reset email if the account exists.
+    """Send a password reset email if the account exists and is active.
 
-    Always returns 202 regardless of whether the email is registered
-    (prevents user enumeration -- UC-01 edge flow).
+    Always returns 202 regardless of whether the address is registered
+    (prevents user enumeration — UC-01 edge flow).
+
+    If the user exists and is active:
+      - Generates an opaque token (``secrets.token_urlsafe(48)``).
+      - SHA-256 hashes it before storage (``token_hash``).
+      - INSERTs a :class:`~app.models.password_reset_token.PasswordResetToken`
+        with a 1-hour expiry.
+      - Sends a Resend transactional email with the reset link.
     """
+    client_ip = request.client.host if request.client else None
+
     result = await db.execute(select(User).where(User.email == body.email))
     user: Optional[User] = result.scalar_one_or_none()
 
@@ -516,15 +656,30 @@ async def forgot_password(
         raw_token = secrets.token_urlsafe(48)
         token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
         expires_at = datetime.now(timezone.utc) + timedelta(hours=_RESET_TOKEN_TTL_HOURS)
+
         reset = PasswordResetToken(
             user_id=user.id,
             token_hash=token_hash,
             expires_at=expires_at,
+            ip_requested_from=client_ip,
         )
         db.add(reset)
-        # In production: fire send_reset_email.delay(user.email, raw_token)
-        # Deferred until tasks/digest_tasks.py is implemented.
-        logger.info("password_reset_token_created", user_id=str(user.id))
+
+        reset_link = (
+            f"{_frontend_url()}/auth/reset-password?token={raw_token}"
+        )
+        await _send_email(
+            to=user.email,
+            subject="Reset your PhishGuard password",
+            html=(
+                f"<p>Hi {user.full_name},</p>"
+                f"<p>Click the link below to reset your password. "
+                f"This link expires in {_RESET_TOKEN_TTL_HOURS} hour(s).</p>"
+                f"<p><a href='{reset_link}'>Reset password</a></p>"
+                f"<p>If you did not request a password reset, ignore this email.</p>"
+            ),
+        )
+        log.info("password_reset_token_created", user_id=str(user.id))
 
     return {}
 
@@ -544,7 +699,12 @@ async def reset_password(
 ) -> dict:
     """Verify the signed reset token and update the user's password.
 
-    Token lifetime: 1 hour.  Single-use: used_at is set on consumption.
+    Validation rules:
+      - Token must exist in ``password_reset_tokens``.
+      - ``used_at`` must be NULL (single-use).
+      - ``expires_at`` must be in the future (1-hour window).
+
+    On success: update ``password_hash`` and set ``used_at = now()``.
     """
     token_hash = hashlib.sha256(body.token.encode()).hexdigest()
     result = await db.execute(
@@ -561,12 +721,14 @@ async def reset_password(
             detail="Reset token is invalid or expired",
         )
 
-    user = (
+    user: User = (
         await db.execute(select(User).where(User.id == reset.user_id))
     ).scalar_one()
+
     user.password_hash = hash_password(body.new_password)
     reset.used_at = datetime.now(timezone.utc)
 
+    log.info("password_reset_completed", user_id=str(user.id))
     return {}
 
 
@@ -584,23 +746,16 @@ async def reset_password(
 async def create_invite(
     body: InviteRequest,
     request: Request,
-    current_user: CurrentUser = Depends(get_current_user),
+    current_user: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> InviteResponse:
-    """Create an invite token and send an email to the invitee.
+    """Create a single-use invite token and email it to the invitee.
 
-    Admin-only.  The invite token is bcrypt-hashed before storage;
+    Token lifetime: 48 hours.  Token is SHA-256 hashed before storage;
     the raw token is embedded in the email link.
+
+    ``Depends(require_admin)`` enforces the admin-only constraint (Section 7.2).
     """
-    from app.dependencies import require_admin
-
-    # Manual role check (not using Depends to keep route registration simple)
-    if current_user.role != "admin":
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin role required",
-        )
-
     raw_token = secrets.token_urlsafe(48)
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=_INVITE_TTL_HOURS)
@@ -615,20 +770,46 @@ async def create_invite(
     )
     db.add(invite)
     await db.flush()
+    await db.refresh(invite)
 
-    await _write_audit(
-        db, "user_invited", current_user.org_id, current_user.id, request,
-        {"invitee_email": body.email, "role": body.role.value},
+    invite_link = (
+        f"{_frontend_url()}/auth/accept-invite?token={raw_token}"
+    )
+    await _send_email(
+        to=body.email,
+        subject=f"You've been invited to join {current_user.full_name}'s PhishGuard organisation",
+        html=(
+            f"<p>Hi,</p>"
+            f"<p>You have been invited to join a PhishGuard organisation as "
+            f"<strong>{body.role.value}</strong>.</p>"
+            f"<p>Click the link below to create your account. "
+            f"This invitation expires in {_INVITE_TTL_HOURS} hours.</p>"
+            f"<p><a href='{invite_link}'>Accept invitation</a></p>"
+        ),
     )
 
-    # In production: fire send_invite_email.delay(body.email, raw_token)
-    logger.info("invite_created", invitee=body.email, org_id=str(current_user.org_id))
+    await audit_service.write_audit_log(
+        db,
+        org_id=current_user.org_id,
+        action="user_invited",
+        user_id=current_user.id,
+        target_type="user",
+        ip_address=request.client.host if request.client else None,
+        request_id=request.headers.get("x-request-id"),
+        detail={"invitee_email": body.email, "role": body.role.value},
+    )
 
+    log.info(
+        "invite_created",
+        invitee=body.email,
+        role=body.role.value,
+        org_id=str(current_user.org_id),
+    )
     return InviteResponse(invite_id=invite.id)
 
 
 # ---------------------------------------------------------------------------
-# POST /auth/accept-invite  (Public -- signed token)
+# POST /auth/accept-invite  (Public — signed token)
 # ---------------------------------------------------------------------------
 
 
@@ -639,13 +820,15 @@ async def create_invite(
 )
 async def accept_invite(
     body: AcceptInviteRequest,
+    request: Request,
     response: Response,
     db: AsyncSession = Depends(get_db),
 ) -> AcceptInviteResponse:
     """Validate the invite token and create the invited user's account.
 
-    Token lifetime: 48 hours.  Single-use: used_at is set on acceptance.
-    Issues access token and refresh cookie on success.
+    Token lifetime: 48 hours.  Single-use: ``used_at`` is set on acceptance.
+    Issues access token and rotates the refresh cookie on success.
+    Audits ``login_success`` so the event appears in the admin audit log.
     """
     token_hash = hashlib.sha256(body.invite_token.encode()).hexdigest()
     result = await db.execute(
@@ -662,7 +845,8 @@ async def accept_invite(
             detail="Invite token is invalid or expired",
         )
 
-    existing = (
+    # Guard against duplicate accounts in the same org (invite email is pre-set)
+    existing: Optional[User] = (
         await db.execute(
             select(User).where(
                 User.email == invite.email,
@@ -679,13 +863,14 @@ async def accept_invite(
     user = User(
         org_id=invite.org_id,
         full_name=body.full_name,
-        email=invite.email,
+        email=invite.email,          # use the email from the invite, not body
         password_hash=hash_password(body.password),
         role=invite.role,
     )
     db.add(user)
     invite.used_at = datetime.now(timezone.utc)
     await db.flush()
+    await db.refresh(user)
 
     access_token = create_access_token(
         user_id=str(user.id),
@@ -694,6 +879,17 @@ async def accept_invite(
     )
     refresh_token = create_refresh_token(user_id=str(user.id))
     _set_refresh_cookie(response, refresh_token)
+
+    await audit_service.write_audit_log(
+        db,
+        org_id=user.org_id,
+        action="login_success",
+        user_id=user.id,
+        target_type="user",
+        target_id=user.id,
+        ip_address=request.client.host if request.client else None,
+        request_id=request.headers.get("x-request-id"),
+    )
 
     return AcceptInviteResponse(
         access_token=access_token,
