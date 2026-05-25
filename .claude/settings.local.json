@@ -7,7 +7,11 @@
       "Bash(sed -i 's/PhishGuard Lite/PhishGuard/g' static-pages-original-exports/ai-assistant.html static-pages-original-exports/all-emails.html static-pages-original-exports/digest-preview.html)",
       "Bash(sed -i 's/PhishGuard Lite/PhishGuard/g' README.md)",
       "Read(//tmp/**)",
-      "Bash(python3 -c ' *)"
+      "Bash(python3 -c ' *)",
+      "Bash(cd \"C:\\\\Users\\\\koman\\\\AppData\\\\Roaming\\\\Claude\\\\local-agent-mode-sessions\\\\skills-plugin\\\\016afcea-8e01-4774-9790-fd2fbe97830b\\\\2902cbe7-9c6a-42b9-9303-19262a9fb9e2\\\\skills\\\\docx\\\\unpacked_plan\" && grep -o '<w:t[^>]*>[^<]*</w:t>' word/document.xml | sed 's/<[^>]*>//g' | sed -n '/3\\\\.7  digest_log/,/3\\\\.8  audit_log/p' | head -60)",
+      "Bash(python3)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
