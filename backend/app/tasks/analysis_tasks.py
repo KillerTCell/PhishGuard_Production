@@ -361,18 +361,118 @@ def classify_email(self, email_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Task 4: generate_explanation
+# Task 4: generate_explanation  (Section 5.1 Task 4)
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=30, queue="analysis")
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")
 def generate_explanation(self, email_id: str) -> None:
-    """Call the Anthropic Claude API to produce a natural-language explanation (FR-04).
+    """Call the Claude API to produce a natural-language explanation (FR-04, UC-02 step 5).
+
+    Loads the AnalysisResult and Email header fields, calls
+    :func:`~app.services.claude_service.generate_explanation`, and persists
+    the result to ``analysis_results.explanation``.
+
+    Retry behaviour:
+        Retried up to ``max_retries=2`` times with ``countdown=10`` on any
+        exception (network, API rate-limit, DB error).  After exhausting
+        retries the RULE_TEXT_TEMPLATES fallback is written to the DB and the
+        task returns without raising — explanation is a non-critical path and
+        must not fail the overall pipeline.
 
     Args:
-        email_id: UUID string of the Email row whose classification to explain.
+        email_id: UUID string of the Email row to explain.
     """
-    log.info("task_not_implemented", task="generate_explanation", email_id=email_id)
+    import asyncio as _asyncio  # noqa: PLC0415
+
+    from celery.exceptions import MaxRetriesExceededError  # noqa: PLC0415
+    from sqlalchemy import select as _select, update as _update  # noqa: PLC0415
+
+    from app.models.analysis_result import AnalysisResult  # noqa: PLC0415
+    from app.models.email import Email  # noqa: PLC0415
+    from app.services import claude_service  # noqa: PLC0415
+
+    email_uuid = uuid.UUID(email_id)
+    session = _make_sync_session()
+    top_features: list = []
+
+    try:
+        # ── Load AnalysisResult (must exist — classify_email runs first) ───────
+        analysis = session.execute(
+            _select(AnalysisResult).where(AnalysisResult.email_id == email_uuid)
+        ).scalar_one_or_none()
+
+        if analysis is None:
+            log.warning("generate_explanation_no_analysis", email_id=email_id)
+            return
+
+        top_features = analysis.top_features or []
+
+        # ── Load email sender / subject ───────────────────────────────────────
+        email = session.execute(
+            _select(Email).where(Email.id == email_uuid)
+        ).scalar_one_or_none()
+        sender = (email.sender or "") if email else ""
+        subject = (email.subject or "") if email else ""
+
+        # ── Call Claude service (async; run in a new event loop) ──────────────
+        explanation = _asyncio.run(
+            claude_service.generate_explanation(top_features, sender, subject)
+        )
+
+        # ── Persist explanation ───────────────────────────────────────────────
+        session.execute(
+            _update(AnalysisResult.__table__)
+            .where(AnalysisResult.__table__.c.email_id == email_uuid)
+            .values(explanation=explanation)
+        )
+        session.commit()
+        log.info("generate_explanation_done", email_id=email_id)
+
+    except Exception as exc:
+        session.rollback()
+        log.warning(
+            "generate_explanation_failed",
+            email_id=email_id,
+            error=str(exc),
+            exc_type=type(exc).__name__,
+        )
+        # Retry up to max_retries times; on exhaustion use rule-text fallback.
+        try:
+            raise self.retry(exc=exc, countdown=10)
+        except MaxRetriesExceededError:
+            # Non-critical — write fallback, do NOT raise.
+            key = top_features[0].get("name", "default") if top_features else "default"
+            fallback = claude_service.RULE_TEXT_TEMPLATES.get(
+                key, claude_service.RULE_TEXT_TEMPLATES["default"]
+            )
+            fallback_session = _make_sync_session()
+            try:
+                fallback_session.execute(
+                    _update(AnalysisResult.__table__)
+                    .where(AnalysisResult.__table__.c.email_id == email_uuid)
+                    .values(explanation=fallback)
+                )
+                fallback_session.commit()
+                log.info(
+                    "generate_explanation_fallback_written",
+                    email_id=email_id,
+                    key=key,
+                )
+            except Exception as fb_exc:
+                log.error(
+                    "generate_explanation_fallback_write_failed",
+                    email_id=email_id,
+                    error=str(fb_exc),
+                )
+                try:
+                    fallback_session.rollback()
+                except Exception:
+                    pass
+            finally:
+                fallback_session.close()
+    finally:
+        session.close()
 
 
 # ---------------------------------------------------------------------------
