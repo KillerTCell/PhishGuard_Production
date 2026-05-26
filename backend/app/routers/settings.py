@@ -42,9 +42,26 @@ _THRESHOLD_CACHE_KEY = "org:{org_id}:thresholds"
 _THRESHOLD_CACHE_TTL = 300
 
 
-async def _invalidate_threshold_cache(redis: aioredis.Redis, org_id: uuid.UUID) -> None:
-    """Remove the org threshold cache entry after a PATCH."""
-    await redis.delete(f"org:{org_id}:thresholds")
+async def _set_threshold_cache(
+    redis: aioredis.Redis,
+    org_id: uuid.UUID,
+    suspicious_threshold: int,
+    phishing_threshold: int,
+) -> None:
+    """Write new threshold values into the Redis cache (SETEX 300 s).
+
+    Replaces the old invalidate-on-write pattern: after a PATCH the cache is
+    immediately populated with the new values so the next read is always a
+    cache hit (avoids a round-trip DB read on the very next request).
+    """
+    await redis.setex(
+        f"org:{org_id}:thresholds",
+        _THRESHOLD_CACHE_TTL,
+        json.dumps({
+            "suspicious_threshold": suspicious_threshold,
+            "phishing_threshold": phishing_threshold,
+        }),
+    )
 
 
 async def _write_audit(
@@ -157,15 +174,31 @@ async def update_settings(
         {"before": before, "after": after},
     )
 
-    # Invalidate Redis threshold cache
-    await _invalidate_threshold_cache(redis, current_user.org_id)
-
-    # Publish SSE event (best-effort)
+    # Populate Redis threshold cache with new values (SETEX 300 s)
     try:
-        await redis.publish(
-            f"org:{current_user.org_id}:events",
-            json.dumps({"type": "threshold_changed", "data": after}),
+        await _set_threshold_cache(
+            redis,
+            current_user.org_id,
+            org.suspicious_threshold,
+            org.phishing_threshold,
         )
+    except Exception:
+        logger.warning("threshold_cache_write_failed", org_id=str(current_user.org_id))
+
+    # Publish threshold_changed SSE — flat payload + XADD for Last-Event-ID replay
+    try:
+        event_payload = {
+            "type": "threshold_changed",
+            "suspicious_threshold": org.suspicious_threshold,
+            "phishing_threshold": org.phishing_threshold,
+            "auto_quarantine_high_risk": org.auto_quarantine_high_risk,
+            "prepend_subject_warning": org.prepend_subject_warning,
+        }
+        data = json.dumps(event_payload)
+        channel = f"org:{current_user.org_id}:events"
+        stream_key = f"org:{current_user.org_id}:stream"
+        await redis.publish(channel, data)
+        await redis.xadd(stream_key, {"data": data}, maxlen=200, approximate=True)
     except Exception:
         logger.warning("sse_publish_failed", event="threshold_changed")
 
@@ -247,7 +280,7 @@ async def create_export(
     # INSERT export_jobs
     job = ExportJob(
         org_id=org_id,
-        requested_by=current_user.id,
+        requested_by_user_id=current_user.id,
         format=body.format.value,
         date_range=body.date_range.value,
         label_filter=body.label_filter.value,
@@ -258,16 +291,20 @@ async def create_export(
         estimated_scope_review=scope.review,
     )
     db.add(job)
-    await db.flush()
+    await db.flush()  # populate job.id before committing
 
     await _write_audit(
         db, "export_generated", current_user, request,
         {"job_id": str(job.id), "format": body.format.value, "date_range": body.date_range.value},
     )
 
-    # Fire Celery task (best-effort import — tasks module built later)
+    # Commit before firing the task so the worker sees the row immediately.
+    # Without this explicit commit the Celery worker may start before the
+    # auto-commit in get_db() fires and find no ExportJob row (race condition).
+    await db.commit()
+
     try:
-        from app.tasks.export_tasks import generate_export
+        from app.tasks.export_tasks import generate_export  # noqa: PLC0415
 
         generate_export.delay(str(job.id))
     except Exception:
@@ -322,7 +359,7 @@ async def get_export(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Export file no longer available",
             )
-        filename = os.path.basename(file_path)
+        filename = f"phishguard-export-{job_id}.{job.format}"
         return FileResponse(
             path=file_path,
             filename=filename,

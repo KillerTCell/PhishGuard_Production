@@ -57,5 +57,13 @@ async def submit_feedback(
         created_at=datetime.now(timezone.utc),
     )
     db.add(feedback)
-    # Commit happens automatically in get_db() on exit
-    return {}
+    # Flush to populate feedback.id before returning; get_db() commits on exit.
+    await db.flush()
+
+    return {
+        "id": str(feedback.id),
+        "email_id": str(email_id),
+        "label": feedback.label,
+        "source": feedback.source,
+        "created_at": feedback.created_at.isoformat(),
+    }
