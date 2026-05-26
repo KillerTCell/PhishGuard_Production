@@ -128,10 +128,10 @@ async def paste_analysis(
 
         (
             parse_and_sanitise.si(str(email_id))
-            | extract_features.si()
-            | classify_email.si()
-            | generate_explanation.si()
-            | apply_outcome.si()
+            | extract_features.si(str(email_id))
+            | classify_email.si(str(email_id))
+            | generate_explanation.si(str(email_id))
+            | apply_outcome.si(str(email_id))
         ).delay()
     except Exception as exc:
         logger.warning(
