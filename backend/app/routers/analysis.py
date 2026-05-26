@@ -38,13 +38,12 @@ from app.schemas.analysis import (
     SampleEmailResponse,
     SeverityDistribution,
 )
-from app.schemas.common import InsightType, StatsPeriod
+from app.schemas.common import StatsPeriod
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["analysis"])
 
 _STATS_CACHE_TTL = 30   # seconds per Section 4.3
-_INSIGHTS_CACHE_TTL = 60  # seconds per Section 4.3
 
 # Feature name ordering for breakdown chart (Section 5.1)
 _FEATURE_NAMES = [
@@ -391,7 +390,11 @@ async def get_analysis_stats(
             subject=row.Email.subject,
             risk_score=row.AnalysisResult.risk_score,
             severity=_severity(row.AnalysisResult.risk_score),
-            top_reason=None,  # top_reason derived from top_features in service layer
+            top_reason=(
+                row.AnalysisResult.top_features[0].get("name")
+                if row.AnalysisResult.top_features
+                else None
+            ),
             received_at=row.Email.received_at,
         )
         for row in recent_q_rows
@@ -433,73 +436,12 @@ async def get_dashboard_insights(
 ) -> list[InsightItem]:
     """Return insight cards for the dashboard insights panel.
 
-    Redis cache TTL 60 s.  Compares this-week vs prev-week quarantine count
-    to detect 'excessive quarantine' alert condition.
+    Delegates to insights_service.compute_insights() which handles caching
+    (Redis TTL 60 s) and all three insight types:
+      1. alert — quarantine spike (this week > 2× prev week)
+      2. info  — current detection thresholds (always present)
+      3. alert — analysis failures detected (any email.status == 'failed')
     """
-    cache_key = f"insights:{current_user.org_id}"
-    cached = await redis.get(cache_key)
-    if cached:
-        return [InsightItem(**item) for item in json.loads(cached)]
+    from app.services.insights_service import compute_insights  # noqa: PLC0415
 
-    org_id = current_user.org_id
-    now = datetime.now(timezone.utc)
-    week_ago = now - timedelta(days=7)
-    two_weeks_ago = now - timedelta(days=14)
-
-    this_week_q: int = (
-        await db.execute(
-            select(func.count(Email.id)).where(
-                Email.org_id == org_id,
-                Email.status == "quarantined",
-                Email.received_at >= week_ago,
-            )
-        )
-    ).scalar_one()
-
-    prev_week_q: int = (
-        await db.execute(
-            select(func.count(Email.id)).where(
-                Email.org_id == org_id,
-                Email.status == "quarantined",
-                Email.received_at >= two_weeks_ago,
-                Email.received_at < week_ago,
-            )
-        )
-    ).scalar_one()
-
-    org = (await db.execute(select(Organisation).where(Organisation.id == org_id))).scalar_one()
-
-    insights: list[InsightItem] = []
-
-    # Alert: excessive quarantine
-    if prev_week_q > 0 and this_week_q > prev_week_q * 2:
-        insights.append(
-            InsightItem(
-                type=InsightType.alert,
-                title="Excessive quarantine activity",
-                message=(
-                    f"This week's quarantine count ({this_week_q}) is more than 2× "
-                    f"the previous week ({prev_week_q}). Review your thresholds."
-                ),
-                severity="high",
-            )
-        )
-
-    # Info: threshold card (always present)
-    insights.append(
-        InsightItem(
-            type=InsightType.info,
-            title="Detection thresholds",
-            message=(
-                f"Suspicious threshold: {org.suspicious_threshold}. "
-                f"Phishing threshold: {org.phishing_threshold}."
-            ),
-        )
-    )
-
-    await redis.setex(
-        cache_key,
-        _INSIGHTS_CACHE_TTL,
-        json.dumps([i.model_dump() for i in insights]),
-    )
-    return insights
+    return await compute_insights(current_user.org_id, db, redis)

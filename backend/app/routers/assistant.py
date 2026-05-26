@@ -14,12 +14,13 @@ used here without deferred evaluation.
 import json
 from typing import Any
 
+import redis.asyncio as aioredis
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.core.config import settings as app_settings
-from app.dependencies import CurrentUser, get_current_user, get_org_thresholds, OrgThresholds
+from app.dependencies import CurrentUser, get_current_user, get_org_thresholds, get_redis, OrgThresholds
 from app.main import limiter
 from app.schemas.analysis import AssistantRequest
 
@@ -116,6 +117,36 @@ async def _stream_claude(messages: list[dict[str, str]], context: str):  # type:
             yield chunk
 
 
+def _build_context(thresholds: OrgThresholds, org_stats: dict | None) -> str:
+    """Build a rich context string for the Claude system prompt.
+
+    Uses cached org stats when available (loaded from Redis key
+    ``stats:{org_id}:all_time``) to give the assistant awareness of the
+    organisation's current email volumes and quarantine state.
+
+    Args:
+        thresholds: Org detection thresholds (always available).
+        org_stats:  Parsed stats dict from Redis cache, or ``None`` on miss.
+
+    Returns:
+        Formatted context string injected into the Claude system prompt.
+    """
+    parts = [
+        f"suspicious_threshold={thresholds.suspicious}",
+        f"phishing_threshold={thresholds.phishing}",
+    ]
+    if org_stats:
+        parts += [
+            f"total_emails_analysed={org_stats.get('total_analysed', 'unknown')}",
+            f"quarantined_count={org_stats.get('quarantined_count', 'unknown')}",
+            f"safe_count={org_stats.get('safe_count', 'unknown')}",
+            f"suspicious_count={org_stats.get('suspicious_count', 'unknown')}",
+            f"has_pending_quarantine={org_stats.get('has_pending_quarantine', 'unknown')}",
+            f"analyst_feedback_count={org_stats.get('feedback_count', 'unknown')}",
+        ]
+    return ", ".join(parts)
+
+
 @router.post(
     "/analysis/assistant",
     summary="AI security assistant (streaming)",
@@ -127,6 +158,7 @@ async def assistant_chat(
     body: AssistantRequest,
     current_user: CurrentUser = Depends(get_current_user),
     thresholds: OrgThresholds = Depends(get_org_thresholds),
+    redis: aioredis.Redis = Depends(get_redis),
 ):
     """Stream an AI assistant response (Claude API or local fallback).
 
@@ -134,7 +166,8 @@ async def assistant_chat(
     Claude API is unavailable).
 
     Rate limit: 30 req/min per user (Section 7.4).
-    System prompt includes org thresholds for context-aware answers.
+    System prompt includes org thresholds and cached org stats for richer,
+    context-aware answers (loads ``stats:{org_id}:all_time`` from Redis).
     """
     last_user_message = next(
         (m.content for m in reversed(body.messages) if m.role.value == "user"),
@@ -148,10 +181,17 @@ async def assistant_chat(
             media_type="text/event-stream",
         )
 
-    context = (
-        f"suspicious_threshold={thresholds.suspicious}, "
-        f"phishing_threshold={thresholds.phishing}"
-    )
+    # Load cached org stats to build a richer context string.  Cache miss is
+    # non-fatal: the assistant still works with threshold values alone.
+    org_stats: dict | None = None
+    try:
+        stats_raw = await redis.get(f"stats:{current_user.org_id}:all_time")
+        if stats_raw:
+            org_stats = json.loads(stats_raw)
+    except Exception:
+        pass  # best-effort; never block the assistant on a Redis error
+
+    context = _build_context(thresholds, org_stats)
     claude_messages = [
         {"role": m.role.value, "content": m.content} for m in body.messages
     ]
