@@ -58,6 +58,30 @@ _FEATURE_NAMES = [
 ]
 
 
+def _severity(risk_score: int | None) -> str | None:
+    """Derive severity band from risk score (0-100).
+
+    ``severity`` is not a DB column on AnalysisResult — it is computed at
+    read time from ``risk_score``.
+
+    Args:
+        risk_score: Integer 0-100, or ``None`` when analysis is pending.
+
+    Returns:
+        ``'critical'``, ``'high'``, ``'medium'``, or ``'low'``;
+        ``None`` when *risk_score* is ``None``.
+    """
+    if risk_score is None:
+        return None
+    if risk_score >= 90:
+        return "critical"
+    if risk_score >= 80:
+        return "high"
+    if risk_score >= 30:
+        return "medium"
+    return "low"
+
+
 # ---------------------------------------------------------------------------
 # POST /analysis/paste
 # ---------------------------------------------------------------------------
@@ -87,19 +111,34 @@ async def paste_analysis(
         status="pending",
         received_at=datetime.now(timezone.utc),
         added_to_training=body.add_to_training,
-        sender=body.sender,
-        subject=body.subject,
         body_text=body.raw_source,
     )
     db.add(email_record)
     await db.flush()
 
+    # Fire the same analysis chain as upload (Section 5.1 Task 1–5)
     try:
-        from app.tasks.analysis_tasks import analysis_chain
+        from app.tasks.analysis_tasks import (  # noqa: PLC0415
+            apply_outcome,
+            classify_email,
+            extract_features,
+            generate_explanation,
+            parse_and_sanitise,
+        )
 
-        analysis_chain.delay(str(email_id), raw_source=body.raw_source)
-    except Exception:
-        logger.warning("paste_chain_dispatch_failed", email_id=str(email_id))
+        (
+            parse_and_sanitise.si(str(email_id))
+            | extract_features.si()
+            | classify_email.si()
+            | generate_explanation.si()
+            | apply_outcome.si()
+        ).delay()
+    except Exception as exc:
+        logger.warning(
+            "paste_chain_dispatch_failed",
+            email_id=str(email_id),
+            error=str(exc),
+        )
 
     return PasteAnalysisResponse(email_id=email_id, status="pending")
 
@@ -190,7 +229,7 @@ async def get_analysis_status(
         status=email.status,
         risk_score=analysis.risk_score if analysis else None,
         classification=analysis.classification if analysis else None,
-        severity=analysis.severity if analysis else None,
+        severity=_severity(analysis.risk_score if analysis else None),
         explanation=analysis.explanation if analysis else None,
     )
 
@@ -312,24 +351,26 @@ async def get_analysis_stats(
         for r in feature_rows
     ]
 
-    # Severity distribution
-    sev_rows = (
+    # Severity distribution — severity is computed from risk_score (not a DB column)
+    risk_score_rows = (
         await db.execute(
-            select(AnalysisResult.severity, func.count(AnalysisResult.id).label("cnt"))
+            select(AnalysisResult.risk_score)
             .join(Email, Email.id == AnalysisResult.email_id)
             .where(Email.org_id == org_id)
-            .group_by(AnalysisResult.severity)
         )
-    ).all()
+    ).scalars().all()
 
-    sev_map = {r.severity: r.cnt for r in sev_rows}
-    sev_total = sum(sev_map.values()) or 1
+    sev_counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    for rs in risk_score_rows:
+        band = _severity(rs) or "low"
+        sev_counts[band] += 1
 
+    sev_total = sum(sev_counts.values()) or 1
     severity_dist = SeverityDistribution(
-        critical_pct=round(sev_map.get("critical", 0) / sev_total * 100, 1),
-        high_pct=round(sev_map.get("high", 0) / sev_total * 100, 1),
-        medium_pct=round(sev_map.get("medium", 0) / sev_total * 100, 1),
-        low_pct=round(sev_map.get("low", 0) / sev_total * 100, 1),
+        critical_pct=round(sev_counts["critical"] / sev_total * 100, 1),
+        high_pct=round(sev_counts["high"] / sev_total * 100, 1),
+        medium_pct=round(sev_counts["medium"] / sev_total * 100, 1),
+        low_pct=round(sev_counts["low"] / sev_total * 100, 1),
     )
 
     # Recent quarantined (last 5)
@@ -349,7 +390,7 @@ async def get_analysis_stats(
             sender=row.Email.sender,
             subject=row.Email.subject,
             risk_score=row.AnalysisResult.risk_score,
-            severity=row.AnalysisResult.severity,
+            severity=_severity(row.AnalysisResult.risk_score),
             top_reason=None,  # top_reason derived from top_features in service layer
             received_at=row.Email.received_at,
         )
