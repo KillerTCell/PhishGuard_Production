@@ -149,14 +149,15 @@ async def test_login_inactive_user(
 
 
 async def test_login_rate_limit(async_client: AsyncClient, admin_user: User) -> None:
-    """Five failed logins from the same IP → 6th attempt returns 429 + Retry-After."""
+    """Four failed logins → 5th attempt returns 429 + Retry-After (>= threshold)."""
     payload = {"email": admin_user.email, "password": "wrong-password"}
 
-    for attempt in range(1, 6):
+    # Attempts 1-4: counter < _LOGIN_MAX_ATTEMPTS (5) → password check → 401
+    for attempt in range(1, 5):
         r = await async_client.post("/api/v1/auth/login", json=payload)
         assert r.status_code == 401, f"Attempt {attempt} should be 401, got {r.status_code}"
 
-    # 6th attempt — rate limit exceeded
+    # 5th attempt — INCR brings counter to 5 (>= _LOGIN_MAX_ATTEMPTS) → 429
     r = await async_client.post("/api/v1/auth/login", json=payload)
     assert r.status_code == 429, r.text
     assert "Retry-After" in r.headers

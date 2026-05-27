@@ -16,10 +16,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# spacy==3.7.4 requires typer<0.10.0 but fastapi-cli requires typer>=0.12.3.
+# Install everything else first, then spacy without its optional CLI deps
+# (PhishGuard only uses spacy's Python API, never its CLI).
+RUN grep -v '^spacy' requirements.txt > /tmp/requirements-no-spacy.txt \
+    && pip install --no-cache-dir --prefix=/install -r /tmp/requirements-no-spacy.txt \
+    && pip install --no-cache-dir --prefix=/install --no-deps spacy==3.7.4
 
-# Download spaCy model into the prefix so it is copied to final stage
-RUN /install/bin/python -m spacy download en_core_web_sm
+# Download spaCy model into the prefix so it is copied to final stage.
+# Use pip install directly because --prefix=/install puts packages there but not
+# the python binary, so `python -m spacy download` can't find the prefix.
+RUN pip install --no-cache-dir --prefix=/install \
+    "en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.7.1/en_core_web_sm-3.7.1-py3-none-any.whl"
 
 
 # ── Stage 2: final ───────────────────────────────────────────

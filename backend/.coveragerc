@@ -1,0 +1,12 @@
+[run]
+source = app
+concurrency = greenlet
+omit =
+    */migrations/*
+    */alembic/*
+    */tests/*
+    app/seed.py
+
+[report]
+fail_under = 80
+show_missing = true

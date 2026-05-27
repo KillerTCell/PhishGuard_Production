@@ -49,6 +49,18 @@ from app.models.organisation import Organisation
 from app.models.user import User
 
 # ---------------------------------------------------------------------------
+# Force-import all Celery task modules so @shared_task decorators connect their
+# on_app_finalize signal handlers BEFORE the first celery_app.finalize() call.
+# Without this, tasks in modules not yet imported are missing from the registry
+# when tests run after test_analysis.py (which only imports analysis_tasks).
+# ---------------------------------------------------------------------------
+import app.tasks.analysis_tasks  # noqa: F401
+import app.tasks.digest_tasks  # noqa: F401
+import app.tasks.export_tasks  # noqa: F401
+import app.tasks.forwarding_tasks  # noqa: F401
+import app.tasks.maintenance_tasks  # noqa: F401
+
+# ---------------------------------------------------------------------------
 # Module-level engine — NullPool so each test gets a fresh physical connection
 # that is never shared across event loops (each test function gets its own loop
 # under asyncio_mode=auto, so pooled connections from the previous loop would
@@ -333,6 +345,11 @@ def _celery_eager() -> None:
     """Run Celery tasks synchronously in-process during tests (Section 9 F-06)."""
     from app.tasks.celery_app import celery_app
 
+    # finalize() imports all modules listed in celery_app.conf.include so that
+    # @shared_task decorators in every task module are registered before the
+    # test runs.  Without this, tests that run after test_analysis.py (which
+    # only imports analysis_tasks) will see NotRegistered for the other modules.
+    celery_app.finalize()
     celery_app.conf.task_always_eager = True
     celery_app.conf.task_eager_propagates = True
     yield
