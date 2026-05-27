@@ -82,6 +82,7 @@ def _dispatch_analysis_chain(email_id: uuid.UUID) -> None:
     outage never blocks the HTTP response.
     """
     try:
+        from app.tasks.celery_app import celery_app  # noqa: PLC0415
         from app.tasks.analysis_tasks import (  # noqa: PLC0415
             apply_outcome,
             classify_email,
@@ -90,13 +91,16 @@ def _dispatch_analysis_chain(email_id: uuid.UUID) -> None:
             parse_and_sanitise,
         )
 
-        (
-            parse_and_sanitise.si(str(email_id))
-            | extract_features.si(str(email_id))
-            | classify_email.si(str(email_id))
-            | generate_explanation.si(str(email_id))
-            | apply_outcome.si(str(email_id))
-        ).delay()
+        # `with celery_app:` sets our Redis-backed app as the current app for
+        # this block, ensuring task.delay() uses Redis not the default AMQP app.
+        with celery_app:
+            (
+                parse_and_sanitise.si(str(email_id))
+                | extract_features.si(str(email_id))
+                | classify_email.si(str(email_id))
+                | generate_explanation.si(str(email_id))
+                | apply_outcome.si(str(email_id))
+            ).delay()
     except Exception as exc:
         logger.warning(
             "analysis_chain_dispatch_failed",
@@ -338,7 +342,7 @@ async def get_email(
     top_features = [
         EmailFeatureDetail(
             name=f.feature_name,
-            value=float(f.feature_value) if f.feature_value is not None else 0.0,
+            value=float(f.feature_value) if isinstance(f.feature_value, (int, float)) else 0.0,
             score_contribution=f.score_contribution or 0.0,
         )
         for f in features

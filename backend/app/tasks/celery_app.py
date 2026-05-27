@@ -99,3 +99,16 @@ celery_app.conf.update(
         },
     },
 )
+
+# ---------------------------------------------------------------------------
+# Register as the current / default app for this process
+# ---------------------------------------------------------------------------
+# Without this, task.delay() / apply_async() resolves connections through
+# Celery's "current app" (_state.current_app), which on Windows defaults to
+# the implicit AMQP app created before our instance is fully initialised.
+# celery_app.send_task() bypasses this; task.delay() does not — hence the
+# pyamqp ConnectionRefusedError seen when dispatching from FastAPI.
+# Setting both here makes our Redis-backed app authoritative for all dispatch
+# paths in every process that imports this module.
+celery_app.set_default()
+celery_app.set_current()

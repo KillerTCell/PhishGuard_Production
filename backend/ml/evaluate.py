@@ -69,10 +69,12 @@ def main() -> None:
     # ── Quality gates ─────────────────────────────────────────────────────────
     failed = False
 
-    # Absolute gate
-    if f1 < _F1_THRESHOLD:
+    # Absolute gate — print required output format (Section 10.1 NFR-6)
+    if f1 >= _F1_THRESHOLD:
+        print(f"\nF1 score: {f1:.2f} — PASS (>= {_F1_THRESHOLD} required)")
+    else:
         print(
-            f"\nFAIL [absolute gate]: F1 {f1:.4f} < threshold {_F1_THRESHOLD}",
+            f"\nF1 score: {f1:.2f} — FAIL (>= {_F1_THRESHOLD} required)",
             file=sys.stderr,
         )
         failed = True
@@ -88,20 +90,25 @@ def main() -> None:
         except Exception as exc:
             print(f"WARNING: could not parse {metrics_path}: {exc}", file=sys.stderr)
 
-    if existing_f1 is not None:
+    if existing_f1 is None:
+        print("Regression gate: PASS (no prior model to compare against)")
+    else:
         min_allowed = existing_f1 - _REGRESSION_TOLERANCE
-        if f1 < min_allowed:
+        if f1 >= min_allowed:
             print(
-                f"\nFAIL [regression gate]: new F1 {f1:.4f} < "
-                f"baseline {existing_f1:.4f} - {_REGRESSION_TOLERANCE} = {min_allowed:.4f}",
+                f"Regression gate: PASS "
+                f"(new {f1:.4f} >= baseline {existing_f1:.4f} - {_REGRESSION_TOLERANCE})"
+            )
+        else:
+            print(
+                f"Regression gate: FAIL "
+                f"(new {f1:.4f} < baseline {existing_f1:.4f} - {_REGRESSION_TOLERANCE} = {min_allowed:.4f})",
                 file=sys.stderr,
             )
             failed = True
 
     if failed:
         sys.exit(1)
-
-    print("\nPASS: all quality gates satisfied.")
 
     # ── Update metrics.json ───────────────────────────────────────────────────
     try:
