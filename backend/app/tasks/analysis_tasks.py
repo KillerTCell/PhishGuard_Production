@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import functools
 import json
+import os
 import re
+import tempfile
 import uuid
 from typing import Any
 
@@ -404,8 +406,9 @@ def parse_and_sanitise(self: Any, email_id: str) -> str:
             )
 
         else:
-            # upload or imap: raw bytes saved to /tmp/{email_id}.eml
-            tmp_path = f"/tmp/{email_id}.eml"
+            # upload or imap: raw bytes saved to <tmpdir>/{email_id}.eml
+            # Use tempfile.gettempdir() — avoids hardcoded /tmp (CWE-377).
+            tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
             try:
                 with open(tmp_path, "rb") as fh:
                     raw_bytes = fh.read()
@@ -1190,9 +1193,13 @@ def imap_poll_all_orgs(self: Any) -> None:
                         raw_bytes: bytes = _raw if isinstance(_raw, bytes) else bytes(_raw)
 
                         # ── Persist Email row ──────────────────────────────
+                        # Use tempfile.gettempdir() — avoids hardcoded /tmp
+                        # (CWE-377). 'xb' = exclusive-create + binary, atomic.
                         email_id = uuid.uuid4()
-                        tmp_path = f"/tmp/{email_id}.eml"
-                        with open(tmp_path, "wb") as fh:
+                        tmp_path = os.path.join(
+                            tempfile.gettempdir(), f"{email_id}.eml"
+                        )
+                        with open(tmp_path, "xb") as fh:
                             fh.write(raw_bytes)
 
                         email_row = Email(

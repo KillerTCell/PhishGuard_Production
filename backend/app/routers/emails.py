@@ -8,6 +8,8 @@ DELETE /emails/{id}     -- hard delete (admin only, Privacy Act erasure)
 from __future__ import annotations
 
 import math
+import os
+import tempfile
 import uuid
 from typing import Literal, Optional
 
@@ -162,9 +164,12 @@ async def upload_email(
         ) from exc
 
     # ── Save raw bytes ────────────────────────────────────────────────────────
+    # Use tempfile.gettempdir() instead of a hardcoded /tmp path (CWE-377).
+    # Open with 'xb' (exclusive-create + binary) so the call fails atomically
+    # if the UUID-named file already exists — prevents TOCTOU/symlink races.
     email_id = uuid.uuid4()
-    tmp_path = f"/tmp/{email_id}.eml"
-    with open(tmp_path, "wb") as f_out:
+    tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
+    with open(tmp_path, "xb") as f_out:
         f_out.write(raw)
 
     # ── INSERT Email row ──────────────────────────────────────────────────────

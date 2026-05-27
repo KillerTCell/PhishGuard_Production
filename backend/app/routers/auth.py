@@ -358,6 +358,10 @@ async def login(
             ip_address=client_ip,
             request_id=request.headers.get("x-request-id"),
         )
+        # Security audit must be committed before the error response is sent:
+        # the HTTPException causes the get_db() teardown to rollback, which
+        # would wash away the flushed row.  Commit here so the audit survives.
+        await db.commit()
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account is deactivated",
@@ -368,8 +372,8 @@ async def login(
     if attempts == 1:
         await redis.expire(rate_key, _LOGIN_WINDOW_SECONDS)
 
-    # 4. Reject if rate limit exceeded
-    if attempts > _LOGIN_MAX_ATTEMPTS:
+    # 4. Reject if rate limit exceeded (>= so the 5th attempt itself is blocked)
+    if attempts >= _LOGIN_MAX_ATTEMPTS:
         await audit_service.write_audit_log(
             db,
             org_id=user.org_id,
@@ -381,6 +385,7 @@ async def login(
             request_id=request.headers.get("x-request-id"),
             detail={"attempts": attempts, "limit": _LOGIN_MAX_ATTEMPTS},
         )
+        await db.commit()  # commit before raising — audit must survive the 429
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many login attempts. Try again in 15 minutes.",
@@ -399,6 +404,7 @@ async def login(
             ip_address=client_ip,
             request_id=request.headers.get("x-request-id"),
         )
+        await db.commit()  # commit before raising — audit must survive the 401
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
