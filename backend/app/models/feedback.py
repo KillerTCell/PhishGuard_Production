@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class Feedback(Base):
+class Feedback(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Analyst or recipient label on a processed email (arch ⑤ feedback loop).
 
     D-06 fix: there is deliberately **NO UNIQUE constraint** on ``email_id``.

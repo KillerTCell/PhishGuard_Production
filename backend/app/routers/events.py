@@ -145,7 +145,7 @@ async def sse_events(
     request: Request,
     current_user: CurrentUser = Depends(get_current_user),
     redis: aioredis.Redis = Depends(get_redis),
-):
+) -> StreamingResponse:
     """Open a persistent SSE connection for this user.
 
     Auth: validated from ``?token=`` query param on connect (EventSource spec).

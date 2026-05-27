@@ -23,10 +23,12 @@ import functools
 import json
 import re
 import uuid
+from typing import Any
 
 import structlog
 from celery import shared_task
 from celery.signals import task_failure
+from sqlalchemy.orm import Session, sessionmaker
 
 log = structlog.get_logger(__name__)
 
@@ -36,8 +38,8 @@ log = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 
-@task_failure.connect
-def handle_task_failure(sender, task_id, exception, args, kwargs, **_kw) -> None:  # type: ignore[misc]
+@task_failure.connect  # type: ignore[misc]  # Celery signal connect decorator lacks type stubs
+def handle_task_failure(sender: Any, task_id: str, exception: Exception, args: tuple[Any, ...], kwargs: dict[str, Any], **_kw: Any) -> None:
     """Log every Celery task failure and write an audit record for classify_email.
 
     Fires after a task raises an unhandled exception (post-retry exhaustion).
@@ -156,20 +158,18 @@ _BARE_URL_RE = re.compile(r"https?://[^\s<>\"{}|\\^`\[\]]+", re.ASCII)
 
 
 @functools.lru_cache(maxsize=1)
-def _sync_session_factory():
+def _sync_session_factory() -> sessionmaker[Session]:
     """Return a cached SQLAlchemy sessionmaker backed by the psycopg2 engine.
 
     ``lru_cache`` ensures the Engine (and its connection pool) is created once
     per Celery worker process, not on every task invocation.
     """
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     from app.core.database import get_sync_engine  # noqa: PLC0415
 
     return sessionmaker(bind=get_sync_engine(), autocommit=False, autoflush=False)
 
 
-def _make_sync_session():
+def _make_sync_session() -> Session:
     """Create a fresh synchronous SQLAlchemy session.
 
     Caller is responsible for ``session.commit()`` / ``session.rollback()``
@@ -184,7 +184,7 @@ def _make_sync_session():
 # ---------------------------------------------------------------------------
 
 
-def _publish_sse_event(org_id: uuid.UUID, event_type: str, data: dict) -> None:
+def _publish_sse_event(org_id: uuid.UUID, event_type: str, data: dict[str, Any]) -> None:
     """Publish an event to the org SSE channel via synchronous Redis pub/sub.
 
     Also writes to the Redis stream for Last-Event-ID replay support
@@ -206,7 +206,7 @@ def _publish_sse_event(org_id: uuid.UUID, event_type: str, data: dict) -> None:
         r.publish(channel, payload)
         # XADD for replay — capped at 200 entries (Section 4.10 MAXLEN 200).
         r.xadd(f"org:{org_id}:stream", {"data": payload}, maxlen=200, approximate=True)
-        r.close()
+        r.close()  # type: ignore[no-untyped-call]  # sync redis close() lacks stubs
     except Exception as exc:
         log.warning(
             "sse_publish_failed",
@@ -328,8 +328,8 @@ def fire_analysis_chain(email_id: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")
-def parse_and_sanitise(self, email_id: str) -> str:
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")  # type: ignore[misc]  # Celery lacks complete type stubs
+def parse_and_sanitise(self: Any, email_id: str) -> str:
     """Parse raw bytes / paste source and persist all header + body fields.
 
     Ingestion-source dispatch:
@@ -383,7 +383,7 @@ def parse_and_sanitise(self, email_id: str) -> str:
             # Body text already stored — skip MIME parsing.
             raw_text = email.body_text or ""
             seen: set[str] = set()
-            links: list[dict] = []
+            links: list[dict[str, Any]] = []
             for url in _BARE_URL_RE.findall(raw_text):
                 if url not in seen:
                     seen.add(url)
@@ -469,8 +469,8 @@ def parse_and_sanitise(self, email_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")
-def extract_features(self, email_id: str) -> str:
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")  # type: ignore[misc]  # Celery lacks complete type stubs
+def extract_features(self: Any, email_id: str) -> str:
     """Extract NLP and structural features and persist EmailFeature rows.
 
     Calls :func:`~app.services.nlp_pipeline.extract_all_features` with the
@@ -526,8 +526,8 @@ def extract_features(self, email_id: str) -> str:
         # Run async extract_all_features inside a fresh event loop.
         # Celery workers are synchronous; asyncio.run() creates a new loop
         # for the duration of this call then tears it down.
-        async def _run_nlp():
-            r = await _aioredis.from_url(settings.REDIS_URL)
+        async def _run_nlp() -> Any:
+            r = await _aioredis.from_url(settings.REDIS_URL)  # type: ignore[no-untyped-call]  # aioredis.from_url lacks complete stubs
             try:
                 return await extract_all_features(email_dict, r)
             finally:
@@ -665,7 +665,7 @@ def _classify_email_inner(email_id: str) -> str:
         sorted_feats = sorted(
             features, key=lambda f: f.score_contribution, reverse=True
         )[:3]
-        top_features_json: list[dict] = [
+        top_features_json: list[dict[str, Any]] = [
             {
                 "name": f.feature_name,
                 "value": float(f.score_contribution),
@@ -766,8 +766,8 @@ def _mark_email_failed(email_id: str, org_id: uuid.UUID, reason: str) -> None:
     )
 
 
-@shared_task(bind=True, max_retries=1, queue="analysis")
-def classify_email(self, email_id: str) -> str:
+@shared_task(bind=True, max_retries=1, queue="analysis")  # type: ignore[misc]  # Celery lacks complete type stubs
+def classify_email(self: Any, email_id: str) -> str:
     """Run the Random Forest classifier and record the AnalysisResult (FR-03).
 
     Reads EmailFeature rows written by :func:`extract_features`, builds a
@@ -846,8 +846,8 @@ def classify_email(self, email_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")
-def generate_explanation(self, email_id: str) -> str:
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")  # type: ignore[misc]  # Celery lacks complete type stubs
+def generate_explanation(self: Any, email_id: str) -> str:
     """Call the Claude API to produce a plain-English explanation (FR-04).
 
     Loads ``AnalysisResult.top_features`` and ``Email`` header fields, then
@@ -878,7 +878,7 @@ def generate_explanation(self, email_id: str) -> str:
 
     email_uuid = uuid.UUID(email_id)
     session = _make_sync_session()
-    top_features: list = []
+    top_features: list[Any] = []
 
     try:
         analysis = session.execute(
@@ -965,8 +965,8 @@ def generate_explanation(self, email_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")
-def apply_outcome(self, email_id: str) -> str:
+@shared_task(bind=True, max_retries=2, default_retry_delay=10, queue="analysis")  # type: ignore[misc]  # Celery lacks complete type stubs
+def apply_outcome(self: Any, email_id: str) -> str:
     """Route email and publish SSE by delegating to quarantine_service (FR-05).
 
     Calls :func:`~app.services.quarantine_service.apply_outcome` inside
@@ -1017,7 +1017,7 @@ def apply_outcome(self, email_id: str) -> str:
     async def _run() -> None:
         """Create async session + Redis, run the service, then invalidate cache."""
         async with AsyncSessionLocal() as db:
-            r = await _aioredis.from_url(
+            r = await _aioredis.from_url(  # type: ignore[no-untyped-call]  # aioredis.from_url lacks complete stubs
                 settings.REDIS_URL,
                 encoding="utf-8",
                 decode_responses=True,
@@ -1051,7 +1051,7 @@ def apply_outcome(self, email_id: str) -> str:
                     r_sync.delete(f"insights:{org_id}")
             finally:
                 sync_session.close()
-                r_sync.close()
+                r_sync.close()  # type: ignore[no-untyped-call]  # sync redis close() lacks stubs
         except Exception as cache_exc:
             log.warning(
                 "apply_outcome_cache_invalidation_failed",
@@ -1082,8 +1082,8 @@ def apply_outcome(self, email_id: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="imap")
-def imap_poll_all_orgs(self) -> None:
+@shared_task(bind=True, queue="imap")  # type: ignore[misc]  # Celery lacks complete type stubs
+def imap_poll_all_orgs(self: Any) -> None:
     """Poll IMAP inboxes for all organisations with an active connector.
 
     Triggered by Celery Beat every 60 seconds (queue='imap').
@@ -1174,7 +1174,8 @@ def imap_poll_all_orgs(self) -> None:
                     n_unseen=len(msg_ids),
                 )
 
-                for msg_id in msg_ids:
+                for msg_id_bytes in msg_ids:
+                    msg_id: str = msg_id_bytes.decode()
                     try:
                         fetch_status, msg_data = conn.fetch(msg_id, "(RFC822)")
                         if fetch_status != "OK" or not msg_data or msg_data[0] is None:
@@ -1185,7 +1186,8 @@ def imap_poll_all_orgs(self) -> None:
                             )
                             continue
 
-                        raw_bytes: bytes = msg_data[0][1]  # type: ignore[index]
+                        _raw = msg_data[0][1]  # imaplib returns nested tuples; stubs type msg_data correctly
+                        raw_bytes: bytes = _raw if isinstance(_raw, bytes) else bytes(_raw)
 
                         # ── Persist Email row ──────────────────────────────
                         email_id = uuid.uuid4()

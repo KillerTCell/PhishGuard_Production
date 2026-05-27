@@ -17,8 +17,10 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import anthropic
+from anthropic.types import TextBlock
 import httpx
 import structlog
 
@@ -117,7 +119,7 @@ LOCAL_ANSWER_MAP: dict[str, str] = {
 
 
 async def generate_explanation(
-    top_features: list,
+    top_features: list[dict[str, Any]],
     sender: str,
     subject: str,
 ) -> str:
@@ -158,7 +160,11 @@ async def generate_explanation(
             system=system_prompt,
             messages=[{"role": "user", "content": user_content}],
         )
-        return response.content[0].text.strip()
+        block = response.content[0]
+        # Only TextBlock carries plain text; other block types are unexpected here.
+        if not isinstance(block, TextBlock):
+            return RULE_TEXT_TEMPLATES["default"]
+        return block.text.strip()
 
     try:
         return await asyncio.to_thread(_sync_call)
@@ -186,8 +192,8 @@ async def generate_explanation(
 
 
 async def chat_stream(
-    messages: list,
-    org_stats: dict,
+    messages: list[Any],
+    org_stats: dict[str, Any],
     local_mode: bool = False,
 ) -> AsyncGenerator[str, None]:
     """Stream an AI assistant response, yielding text deltas token-by-token.
@@ -213,9 +219,8 @@ async def chat_stream(
     for msg in reversed(messages):
         role = msg.get("role") if isinstance(msg, dict) else str(getattr(msg, "role", ""))
         if role == "user":
-            last_user_msg = (
-                msg.get("content") if isinstance(msg, dict) else str(getattr(msg, "content", ""))
-            ).lower()
+            raw_content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+            last_user_msg = str(raw_content or "").lower()
             break
 
     # ── Local mode: keyword lookup only ──────────────────────────────────────
@@ -258,18 +263,22 @@ async def chat_stream(
     )
 
     # ── Normalise messages for the Anthropic API ──────────────────────────────
-    api_messages = []
+    from anthropic.types import MessageParam  # noqa: PLC0415
+    from typing import cast  # noqa: PLC0415
+
+    raw_api_messages: list[dict[str, str]] = []
     for msg in messages:
         if isinstance(msg, dict):
-            api_messages.append({
+            raw_api_messages.append({
                 "role": str(msg.get("role", "user")),
                 "content": str(msg.get("content", "")),
             })
         else:
-            api_messages.append({
+            raw_api_messages.append({
                 "role": str(getattr(msg, "role", "user")),
                 "content": str(getattr(msg, "content", "")),
             })
+    api_messages = cast(list[MessageParam], raw_api_messages)
 
     # ── Resolve fallback keyword in case of API error ─────────────────────────
     fallback_key = "how does"

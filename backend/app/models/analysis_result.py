@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -23,7 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class AnalysisResult(Base):
+class AnalysisResult(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """ML classification result — 1:1 with emails (FR-04, arch step 4–5).
 
     D-05 fix: ``threshold_applied_suspicious`` and
@@ -84,7 +85,7 @@ class AnalysisResult(Base):
     # Claude API 2–3 sentence explanation or RULE_TEXT_TEMPLATES fallback
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Top 3 [{name, value, score_contribution}] sorted desc — UI Figure 10–11
-    top_features: Mapped[list] = mapped_column(
+    top_features: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     quarantined: Mapped[bool] = mapped_column(

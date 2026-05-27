@@ -12,7 +12,8 @@ not this module's globals, causing NameError.  Python 3.12 resolves all types
 used here without deferred evaluation.
 """
 import json
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import Any, cast
 
 import redis.asyncio as aioredis
 import structlog
@@ -82,14 +83,14 @@ def _local_answer(question: str) -> str:
     )
 
 
-async def _stream_local(answer: str):  # type: ignore[return]
+async def _stream_local(answer: str) -> AsyncGenerator[bytes, None]:
     """Yield a single SSE data event with the local answer."""
     event = f"data: {json.dumps({'text': answer})}\n\n"
     yield event.encode()
     yield b"data: [DONE]\n\n"
 
 
-async def _stream_claude(messages: list[dict[str, str]], context: str):  # type: ignore[return]
+async def _stream_claude(messages: list[dict[str, str]], context: str) -> AsyncGenerator[bytes, None]:
     """Stream Claude API response as SSE text/event-stream."""
     try:
         import anthropic
@@ -101,11 +102,13 @@ async def _stream_claude(messages: list[dict[str, str]], context: str):  # type:
             "Answer questions about phishing detection, email security, and the PhishGuard system. "
             "Be concise and accurate."
         )
+        from anthropic.types import MessageParam  # noqa: PLC0415
+
         async with client.messages.stream(
             model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             system=system_prompt,
-            messages=messages,
+            messages=cast(list[MessageParam], messages),
         ) as stream:
             async for text in stream.text_stream:
                 yield f"data: {json.dumps({'text': text})}\n\n".encode()
@@ -117,7 +120,7 @@ async def _stream_claude(messages: list[dict[str, str]], context: str):  # type:
             yield chunk
 
 
-def _build_context(thresholds: OrgThresholds, org_stats: dict | None) -> str:
+def _build_context(thresholds: OrgThresholds, org_stats: dict[str, Any] | None) -> str:
     """Build a rich context string for the Claude system prompt.
 
     Uses cached org stats when available (loaded from Redis key
@@ -159,7 +162,7 @@ async def assistant_chat(
     current_user: CurrentUser = Depends(get_current_user),
     thresholds: OrgThresholds = Depends(get_org_thresholds),
     redis: aioredis.Redis = Depends(get_redis),
-):
+) -> StreamingResponse:
     """Stream an AI assistant response (Claude API or local fallback).
 
     local_mode=True forces LOCAL_ANSWER_MAP lookup (used for demos or when
@@ -183,7 +186,7 @@ async def assistant_chat(
 
     # Load cached org stats to build a richer context string.  Cache miss is
     # non-fatal: the assistant still works with threshold values alone.
-    org_stats: dict | None = None
+    org_stats: dict[str, Any] | None = None
     try:
         stats_raw = await redis.get(f"stats:{current_user.org_id}:all_time")
         if stats_raw:

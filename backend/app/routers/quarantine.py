@@ -15,7 +15,7 @@ import math
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import redis.asyncio as aioredis
 import structlog
@@ -31,6 +31,7 @@ from app.models.email import Email
 from app.models.email_feature import EmailFeature
 from app.models.feedback import Feedback
 from app.schemas.emails import AttachmentMetadata, EmailDetail, EmailFeatureDetail, LinkDetail
+from app.schemas.common import EmailStatus, FeedbackState, Severity
 from app.schemas.quarantine import (
     DigestPreviewResponse,
     QuarantineActionResponse,
@@ -48,15 +49,15 @@ router = APIRouter(tags=["quarantine"])
 # ---------------------------------------------------------------------------
 
 
-def _severity(risk_score: int) -> str:
-    """Map risk_score (0–100) to a severity band string."""
+def _severity(risk_score: int) -> Severity:
+    """Map risk_score (0–100) to a Severity enum value."""
     if risk_score >= 90:
-        return "critical"
+        return Severity.critical
     if risk_score >= 80:
-        return "high"
+        return Severity.high
     if risk_score >= 30:
-        return "medium"
-    return "low"
+        return Severity.medium
+    return Severity.low
 
 
 async def _write_audit(
@@ -65,7 +66,7 @@ async def _write_audit(
     current_user: CurrentUser,
     request: Request,
     target_id: Optional[uuid.UUID] = None,
-    detail: Optional[dict] = None,
+    detail: Optional[dict[str, Any]] = None,
 ) -> None:
     """Append an audit log row for quarantine actions."""
     log = AuditLog(
@@ -81,7 +82,7 @@ async def _write_audit(
     db.add(log)
 
 
-async def _publish_sse(redis: aioredis.Redis, org_id: uuid.UUID, event: dict) -> None:
+async def _publish_sse(redis: aioredis.Redis, org_id: uuid.UUID, event: dict[str, Any]) -> None:
     """PUBLISH to the org pub/sub channel + XADD to the org stream (best-effort).
 
     Both operations use the same JSON payload.  XADD (maxlen 200) feeds the
@@ -172,10 +173,10 @@ async def list_quarantine(
     ).all()
 
     # Map Feedback.label → display feedback_state for list items.
-    _label_to_state: dict[str, str] = {
-        "phishing": "confirmed_phishing",
-        "safe": "marked_safe",
-        "needs_investigation": "needs_investigation",
+    _label_to_state: dict[str, FeedbackState] = {
+        "phishing": FeedbackState.confirmed,
+        "safe": FeedbackState.released,
+        "needs_investigation": FeedbackState.investigating,
     }
 
     items: list[QuarantineListItem] = []
@@ -183,7 +184,7 @@ async def list_quarantine(
         email_row = row.Email
         ar = row.AnalysisResult
         risk_score = ar.risk_score if ar else 0
-        top_features: list = ar.top_features if ar else []
+        top_features: list[Any] = ar.top_features if ar else []
         top_reason = top_features[0].get("name") if top_features else None
         fb_label: str | None = row.feedback_label
         items.append(
@@ -415,7 +416,7 @@ async def confirm_phishing(
         current_user.org_id,
         {"type": "scan_complete", "email_id": str(email_id), "status": "confirmed_phishing"},
     )
-    return QuarantineActionResponse(status="confirmed_phishing")
+    return QuarantineActionResponse(status=EmailStatus.confirmed_phishing)
 
 
 # ---------------------------------------------------------------------------
@@ -462,7 +463,7 @@ async def release_email(
         current_user.org_id,
         {"type": "scan_complete", "email_id": str(email_id), "status": "delivered"},
     )
-    return QuarantineActionResponse(status="delivered")
+    return QuarantineActionResponse(status=EmailStatus.delivered)
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +502,7 @@ async def flag_for_investigation(
     )
     await _write_audit(db, "email_flagged_investigation", current_user, request, email_id)
     await db.commit()
-    return QuarantineActionResponse(status="quarantined")
+    return QuarantineActionResponse(status=EmailStatus.quarantined)
 
 
 # ---------------------------------------------------------------------------

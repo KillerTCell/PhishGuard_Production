@@ -21,9 +21,11 @@ import json
 import os
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import structlog
 from celery import shared_task
+from sqlalchemy.orm import Session, sessionmaker
 
 log = structlog.get_logger(__name__)
 
@@ -34,16 +36,15 @@ log = structlog.get_logger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
-def _sync_session_factory():
+def _sync_session_factory() -> sessionmaker[Session]:
     """Return a cached SQLAlchemy sessionmaker backed by the psycopg2 engine."""
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     from app.core.database import get_sync_engine  # noqa: PLC0415
 
     return sessionmaker(bind=get_sync_engine(), autocommit=False, autoflush=False)
 
 
-def _make_sync_session():
+def _make_sync_session() -> Session:
+    """Create a fresh synchronous SQLAlchemy session."""
     return _sync_session_factory()()
 
 
@@ -70,7 +71,7 @@ _EXPORT_FIELDS: list[str] = [
 ]
 
 
-def _row_to_dict(row) -> dict:
+def _row_to_dict(row: Any) -> dict[str, Any]:
     """Serialise one result row to a plain dict ready for CSV/JSON output."""
     return {
         "email_id": str(row.email_id),
@@ -96,8 +97,8 @@ def _row_to_dict(row) -> dict:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="export")
-def generate_export(self, job_id: str) -> None:
+@shared_task(bind=True, queue="export")  # type: ignore[misc]  # Celery lacks complete type stubs
+def generate_export(self: Any, job_id: str) -> None:
     """Generate a data export file and update the ExportJob row (FR-08).
 
     Steps:

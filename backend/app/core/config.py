@@ -74,4 +74,4 @@ class Settings(BaseSettings):
     """Absolute path to the Docker volume where generated CSV exports live."""
 
 
-settings = Settings()
+settings = Settings()  # type: ignore[call-arg]  # pydantic-settings reads required fields from env vars at runtime

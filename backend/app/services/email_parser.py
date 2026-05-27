@@ -66,7 +66,8 @@ _DMARC_VALID: frozenset[str] = frozenset({"pass", "fail", "none"})
 
 
 # Re-export from canonical location so existing imports remain unbroken.
-from app.core.exceptions import EmailParseError  # noqa: F401, E402
+# ``as EmailParseError`` makes the re-export explicit so mypy --strict sees it.
+from app.core.exceptions import EmailParseError as EmailParseError  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -337,9 +338,10 @@ def _parse_auth_results(message: Any) -> tuple[str, str, str]:
             """Extract the result string from a checkdmarc field value."""
             if isinstance(field, list) and field:
                 item = field[0]
-                return item.get("result", "none") if isinstance(item, dict) else str(item)
+                result = item.get("result", "none") if isinstance(item, dict) else str(item)
+                return str(result)
             if isinstance(field, dict):
-                return field.get("result", "none")
+                return str(field.get("result", "none"))
             return str(field) if field else "none"
 
         spf = _normalise_spf(_first_result(results.get("spf", [])))

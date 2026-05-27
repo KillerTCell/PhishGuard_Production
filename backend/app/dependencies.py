@@ -59,7 +59,7 @@ def _get_redis_pool() -> aioredis.Redis:
     """Return the process-level Redis connection pool (lazy init)."""
     global _redis_pool
     if _redis_pool is None:
-        _redis_pool = aioredis.from_url(
+        _redis_pool = aioredis.from_url(  # type: ignore[no-untyped-call]  # aioredis.from_url lacks complete stubs
             settings.REDIS_URL,
             encoding="utf-8",
             decode_responses=True,

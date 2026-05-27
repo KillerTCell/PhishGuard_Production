@@ -18,6 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, get_current_user, get_db, require_admin
+from app.schemas.common import ConnectorStatus, EmailStatus
 from app.models.audit_log import AuditLog
 from app.models.email import Email
 from app.models.organisation import Organisation
@@ -74,7 +75,7 @@ async def get_forwarding_status(
 
     return ForwardingStatusResponse(
         forwarding_address=forwarding_address,
-        connector_status=org.connector_status,
+        connector_status=ConnectorStatus(org.connector_status),
         imap_user=org.imap_user,
         setup_instructions=_SETUP_INSTRUCTIONS,
     )
@@ -120,7 +121,7 @@ async def list_forwarding_emails(
             sender=r.sender,
             subject=r.subject,
             risk_score=None,   # populated via AnalysisResult join in a later optimisation
-            status=r.status,
+            status=EmailStatus(r.status),
             ingested_at=r.ingested_at,
         )
         for r in rows
@@ -179,8 +180,8 @@ async def update_forwarding_config(
         str(body.imap_user),
         body.imap_password,
     )
-    connector_status = "active" if ok else "error"
-    org.connector_status = connector_status
+    connector_status: ConnectorStatus = ConnectorStatus.active if ok else ConnectorStatus.error
+    org.connector_status = connector_status.value
 
     db.add(
         AuditLog(

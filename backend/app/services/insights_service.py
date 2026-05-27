@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.email import Email
 from app.models.organisation import Organisation
 from app.schemas.analysis import InsightItem
-from app.schemas.common import InsightType
+from app.schemas.common import InsightType, Severity
 
 _INSIGHTS_CACHE_TTL = 60  # seconds
 
@@ -108,7 +108,7 @@ async def compute_insights(
                     f"This week's quarantine count ({this_week_q}) is more than 2× "
                     f"the previous week ({prev_week_q}). Review your thresholds."
                 ),
-                severity="high",
+                severity=Severity.high,
             )
         )
 
@@ -130,7 +130,7 @@ async def compute_insights(
                 type=InsightType.alert,
                 title="Analysis failures detected",
                 message="Some emails failed to process. Check the email list for details.",
-                severity="medium",
+                severity=Severity.medium,
             )
         )
 

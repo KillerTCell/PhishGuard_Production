@@ -18,7 +18,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class InviteToken(Base):
+class InviteToken(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Single-use org member invite token (FR-01, admin UC).
 
     The raw token is sent in the email link; only its bcrypt hash is stored

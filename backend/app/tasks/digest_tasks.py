@@ -20,9 +20,11 @@ import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import structlog
 from celery import shared_task
+from sqlalchemy.orm import Session, sessionmaker
 
 log = structlog.get_logger(__name__)
 
@@ -33,16 +35,14 @@ log = structlog.get_logger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
-def _sync_session_factory():
+def _sync_session_factory() -> sessionmaker[Session]:
     """Return a cached SQLAlchemy sessionmaker backed by the psycopg2 engine."""
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     from app.core.database import get_sync_engine  # noqa: PLC0415
 
     return sessionmaker(bind=get_sync_engine(), autocommit=False, autoflush=False)
 
 
-def _make_sync_session():
+def _make_sync_session() -> Session:
     """Create a fresh synchronous SQLAlchemy session."""
     return _sync_session_factory()()
 
@@ -52,7 +52,7 @@ def _make_sync_session():
 # ---------------------------------------------------------------------------
 
 
-def _publish_sse(org_id: uuid.UUID, event_type: str, data: dict) -> None:
+def _publish_sse(org_id: uuid.UUID, event_type: str, data: dict[str, Any]) -> None:
     """PUBLISH + XADD to the org SSE channel (synchronous Redis).
 
     Failures are caught and logged at WARNING level — a failed SSE publish
@@ -68,7 +68,7 @@ def _publish_sse(org_id: uuid.UUID, event_type: str, data: dict) -> None:
         channel = f"org:{org_id}:events"
         r.publish(channel, payload)
         r.xadd(f"org:{org_id}:stream", {"data": payload}, maxlen=200, approximate=True)
-        r.close()
+        r.close()  # type: ignore[no-untyped-call]  # sync redis close() lacks stubs
     except Exception as exc:
         log.warning(
             "digest_sse_publish_failed",
@@ -83,8 +83,8 @@ def _publish_sse(org_id: uuid.UUID, event_type: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="digest", max_retries=3)
-def send_digest(self, email_id: str, digest_log_id: str | None = None) -> None:
+@shared_task(bind=True, queue="digest", max_retries=3)  # type: ignore[misc]  # Celery lacks complete type stubs
+def send_digest(self: Any, email_id: str, digest_log_id: str | None = None) -> None:
     """Build and deliver a quarantine digest email (FR-06, UC-05).
 
     Steps:

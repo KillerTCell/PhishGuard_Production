@@ -19,9 +19,11 @@ import json
 import uuid
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
+from typing import Any
 
 import structlog
 from celery import shared_task
+from sqlalchemy.orm import Session, sessionmaker
 
 log = structlog.get_logger(__name__)
 
@@ -34,16 +36,15 @@ import functools
 
 
 @functools.lru_cache(maxsize=1)
-def _sync_session_factory():
+def _sync_session_factory() -> sessionmaker[Session]:
     """Return a cached SQLAlchemy sessionmaker backed by the psycopg2 engine."""
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     from app.core.database import get_sync_engine  # noqa: PLC0415
 
     return sessionmaker(bind=get_sync_engine(), autocommit=False, autoflush=False)
 
 
-def _make_sync_session():
+def _make_sync_session() -> Session:
+    """Create a fresh synchronous SQLAlchemy session."""
     return _sync_session_factory()()
 
 
@@ -52,7 +53,7 @@ def _make_sync_session():
 # ---------------------------------------------------------------------------
 
 
-def _publish_user_sse(user_id: str, event_type: str, data: dict) -> None:
+def _publish_user_sse(user_id: str, event_type: str, data: dict[str, Any]) -> None:
     """PUBLISH an event to the per-user SSE channel (synchronous Redis).
 
     Used to deliver forwarding_test_complete failure events directly to the
@@ -70,7 +71,7 @@ def _publish_user_sse(user_id: str, event_type: str, data: dict) -> None:
         r = _sync_redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
         payload = json.dumps({"type": event_type, **data})
         r.publish(f"user:{user_id}:events", payload)
-        r.close()
+        r.close()  # type: ignore[no-untyped-call]  # sync redis close() lacks stubs
     except Exception as exc:
         log.warning(
             "forwarding_sse_publish_failed",
@@ -85,8 +86,8 @@ def _publish_user_sse(user_id: str, event_type: str, data: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="forwarding")
-def forwarding_test(self, org_id: str, user_id: str) -> None:
+@shared_task(bind=True, queue="forwarding")  # type: ignore[misc]  # Celery lacks complete type stubs
+def forwarding_test(self: Any, org_id: str, user_id: str) -> None:
     """Append a probe message to the org IMAP inbox and return (Section 5.4).
 
     Steps:
@@ -190,7 +191,7 @@ def forwarding_test(self, org_id: str, user_id: str) -> None:
         conn = imaplib.IMAP4_SSL(org.imap_host, port, timeout=10)
         try:
             conn.login(org.imap_user, imap_password)
-            conn.append("INBOX", None, None, test_eml_bytes)
+            conn.append("INBOX", "", None, test_eml_bytes)  # type: ignore[arg-type]  # imaplib stubs require str for flags/date but None is valid
             log.info(
                 "forwarding_test_appended",
                 org_id=org_id,

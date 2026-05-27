@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional, Union
 
 import redis.asyncio as aioredis
 import structlog
@@ -29,8 +29,10 @@ from app.models.organisation import Organisation
 from app.schemas.settings import (
     ExportCreateRequest,
     ExportCreateResponse,
+    ExportFormat,
     ExportJobStatusResponse,
     ExportScope,
+    ExportStatus,
     SettingsResponse,
     SettingsUpdateRequest,
 )
@@ -69,7 +71,7 @@ async def _write_audit(
     action: str,
     current_user: CurrentUser,
     request: Request,
-    detail: Optional[dict] = None,
+    detail: Optional[dict[str, Any]] = None,
 ) -> None:
     """Append an audit log row for settings changes."""
     log = AuditLog(
@@ -327,7 +329,7 @@ async def get_export(
     job_id: uuid.UUID,
     current_user: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
-):
+) -> Union[FileResponse, ExportJobStatusResponse]:
     """Return export file (FileResponse) when ready, or job status while pending.
 
     A-02 fix: FileResponse served directly from /mnt/exports volume mount.
@@ -379,9 +381,9 @@ async def get_export(
 
     return ExportJobStatusResponse(
         job_id=job.id,
-        status=job.status,
+        status=ExportStatus(job.status),
         estimated_scope=scope,
-        format=job.format,
+        format=ExportFormat(job.format) if job.format else None,
         created_at=job.created_at,
         error_message=job.error_message if job.status == "failed" else None,
     )

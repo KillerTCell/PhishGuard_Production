@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class ExportJob(Base):
+class ExportJob(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Persistent export job record — powers the 'Recent exports' UI (D-10 fix).
 
     D-10: prior plan used ephemeral Redis-only tracking, so completed

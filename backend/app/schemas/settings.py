@@ -14,7 +14,12 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from app.schemas.common import ExportDateRange, ExportFormat, ExportStatus, LabelFilter
+from app.schemas.common import (  # explicit re-exports for mypy --strict
+    ExportDateRange,
+    ExportFormat as ExportFormat,
+    ExportStatus as ExportStatus,
+    LabelFilter,
+)
 
 
 # ---------------------------------------------------------------------------

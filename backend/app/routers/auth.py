@@ -25,7 +25,7 @@ import hashlib
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import redis.asyncio as aioredis
 import resend as _resend
@@ -62,6 +62,7 @@ from app.schemas.auth import (
     RegisterRequest,
     RegisterResponse,
     ResetPasswordRequest,
+    UserRole,
 )
 from app.services import audit_service, forwarding_service, org_service
 
@@ -131,7 +132,7 @@ async def _send_email(to: str, subject: str, html: str) -> None:
     try:
         _resend.api_key = settings.RESEND_API_KEY
         sender = f"PhishGuard <noreply@{settings.FORWARDING_DOMAIN}>"
-        params: _resend.Emails.SendParams = {  # type: ignore[attr-defined]
+        params: _resend.Emails.SendParams = {
             "from": sender,
             "to": [to],
             "subject": subject,
@@ -297,7 +298,7 @@ async def register(
     return RegisterResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        role=user.role,
+        role=UserRole(user.role),
         org_id=user.org_id,
         forwarding_address=fwd_address,
     )
@@ -442,7 +443,7 @@ async def login(
 
     return LoginResponse(
         access_token=access_token,
-        role=user.role,
+        role=UserRole(user.role),
         org_id=user.org_id,
         org_name=org.name,
         unread_count=unread_count,
@@ -634,7 +635,7 @@ async def forgot_password(
     body: ForgotPasswordRequest,
     request: Request,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Send a password reset email if the account exists and is active.
 
     Always returns 202 regardless of whether the address is registered
@@ -696,7 +697,7 @@ async def forgot_password(
 async def reset_password(
     body: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Verify the signed reset token and update the user's password.
 
     Validation rules:
@@ -893,6 +894,6 @@ async def accept_invite(
 
     return AcceptInviteResponse(
         access_token=access_token,
-        role=user.role,
+        role=UserRole(user.role),
         org_id=user.org_id,
     )

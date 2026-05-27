@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -46,7 +47,7 @@ AUDIT_TARGET_TYPES = frozenset(
 )
 
 
-class AuditLog(Base):
+class AuditLog(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Append-only event log for compliance and admin review (FR-01, FR-05).
 
     IMPORTANT: This table must never be UPDATEd or DELETEd from.
@@ -91,7 +92,7 @@ class AuditLog(Base):
         UUID(as_uuid=True), nullable=True
     )
     # Before/after data e.g. {before:{suspicious:30}, after:{suspicious:25}}
-    detail: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     # D-08 FIX — UUID of the HTTP request from structlog middleware
     request_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     # From X-Forwarded-For set by nginx — supports IPv4 and IPv6

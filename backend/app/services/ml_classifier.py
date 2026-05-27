@@ -44,7 +44,8 @@ _MODEL_PATH: Path = Path(os.environ["PHISHGUARD_MODEL_PATH"]) if "PHISHGUARD_MOD
 
 
 # Re-export from canonical location so existing imports remain unbroken.
-from app.core.exceptions import ModelNotFoundError  # noqa: F401, E402
+# ``as ModelNotFoundError`` makes the re-export explicit so mypy --strict sees it.
+from app.core.exceptions import ModelNotFoundError as ModelNotFoundError  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

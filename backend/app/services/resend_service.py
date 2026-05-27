@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from typing import Any
 
 import structlog
 
@@ -49,8 +50,8 @@ def _esc(text: str) -> str:
 
 
 def build_digest_html(
-    email,          # Email ORM instance
-    analysis,       # AnalysisResult ORM instance or None
+    email: Any,          # Email ORM instance — typed Any to avoid circular import
+    analysis: Any,       # AnalysisResult ORM instance or None
     signed_token: str,
     expires_at: datetime,
 ) -> str:

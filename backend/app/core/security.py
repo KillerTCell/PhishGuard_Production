@@ -40,8 +40,8 @@ def _get_fernet() -> Fernet:
 # ---------------------------------------------------------------------------
 
 def create_access_token(
-    user_id: int,
-    org_id: int,
+    user_id: str,
+    org_id: str,
     role: str,
     hours: int = 8,
 ) -> str:
@@ -67,14 +67,14 @@ def create_access_token(
     """
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
-        "sub": str(user_id),
-        "org_id": str(org_id),
+        "sub": user_id,
+        "org_id": org_id,
         "role": role,
         "jti": secrets.token_urlsafe(16),
         "iat": now,
         "exp": now + timedelta(hours=hours),
     }
-    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+    return str(jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256"))
 
 
 def decode_access_token(token: str) -> dict[str, Any]:
@@ -90,14 +90,15 @@ def decode_access_token(token: str) -> dict[str, Any]:
         Decoded claims dict with keys ``sub``, ``org_id``, ``role``, ``jti``,
         ``iat``, ``exp`` (and ``type`` for refresh tokens).
     """
-    return jwt.decode(  # type: ignore[no-any-return]
+    result: dict[str, Any] = jwt.decode(
         token,
         settings.JWT_SECRET,
         algorithms=["HS256"],
     )
+    return result
 
 
-def create_refresh_token(user_id: int) -> str:
+def create_refresh_token(user_id: str) -> str:
     """Create a 7-day HS256 refresh token with a unique JTI.
 
     The JTI embedded in the token is extracted via ``decode_access_token``
@@ -119,13 +120,13 @@ def create_refresh_token(user_id: int) -> str:
     """
     now = datetime.now(timezone.utc)
     payload: dict[str, Any] = {
-        "sub": str(user_id),
+        "sub": user_id,
         "type": "refresh",
         "jti": secrets.token_urlsafe(32),
         "iat": now,
         "exp": now + timedelta(days=7),
     }
-    return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
+    return str(jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256"))
 
 
 # ---------------------------------------------------------------------------
@@ -154,14 +155,14 @@ def verify_password(plain: str, hashed: str) -> bool:
     Returns:
         True on match, False otherwise.
     """
-    return bcrypt.checkpw(plain.encode(), hashed.encode())  # type: ignore[return-value]
+    return bool(bcrypt.checkpw(plain.encode(), hashed.encode()))
 
 
 # ---------------------------------------------------------------------------
 # HMAC digest action tokens
 # ---------------------------------------------------------------------------
 
-def sign_digest_token(email_id: int, jti: str) -> str:
+def sign_digest_token(email_id: str, jti: str) -> str:
     """Return an HMAC-SHA256 hex digest for a quarantine digest action link.
 
     The token binds the *email_id* and a random *jti* together so that the
@@ -188,7 +189,7 @@ def sign_digest_token(email_id: int, jti: str) -> str:
     ).hexdigest()
 
 
-def verify_digest_token(token: str, email_id: int, jti: str) -> bool:
+def verify_digest_token(token: str, email_id: str, jti: str) -> bool:
     """Verify a digest action token using constant-time comparison.
 
     Constant-time comparison prevents timing-based token forgery.
@@ -244,7 +245,7 @@ def fernet_decrypt(ciphertext: str) -> str:
 # Redis JTI blacklist — refresh token invalidation
 # ---------------------------------------------------------------------------
 
-async def blacklist_jti(redis: Redis, jti: str, ttl_seconds: int) -> None:  # type: ignore[type-arg]
+async def blacklist_jti(redis: Redis, jti: str, ttl_seconds: int) -> None:
     """Add a refresh token JTI to the Redis blacklist with a TTL.
 
     Called at logout.  The TTL is set to the token's remaining lifetime so
@@ -260,7 +261,7 @@ async def blacklist_jti(redis: Redis, jti: str, ttl_seconds: int) -> None:  # ty
     await redis.setex(f"blacklist:{jti}", ttl_seconds, "1")
 
 
-async def is_jti_blacklisted(redis: Redis, jti: str) -> bool:  # type: ignore[type-arg]
+async def is_jti_blacklisted(redis: Redis, jti: str) -> bool:
     """Return True if the JTI is present in the Redis blacklist.
 
     Args:

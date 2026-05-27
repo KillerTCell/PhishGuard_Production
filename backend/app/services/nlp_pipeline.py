@@ -69,7 +69,7 @@ class FeatureResult:
     """
 
     feature_name: str
-    feature_value: dict | Any
+    feature_value: dict[str, Any] | Any
     score_contribution: float
 
 

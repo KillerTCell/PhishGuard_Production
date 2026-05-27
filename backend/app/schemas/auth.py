@@ -19,7 +19,7 @@ from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
 
-from app.schemas.common import UserRole
+from app.schemas.common import UserRole as UserRole  # explicit re-export for mypy --strict
 
 
 # ---------------------------------------------------------------------------

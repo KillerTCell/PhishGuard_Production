@@ -21,7 +21,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class User(Base):
+class User(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Authenticated user within an organisation.
 
     D-03: ``email`` IS the username — there is no separate ``username``

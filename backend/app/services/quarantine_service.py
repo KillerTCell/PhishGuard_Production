@@ -179,7 +179,7 @@ async def apply_outcome(
     ).scalar_one_or_none()
     classification: str = (analysis.classification if analysis else None) or "safe"
     risk_score: int = analysis.risk_score if analysis else 0
-    top_features: list = analysis.top_features if analysis else []
+    top_features: list[Any] = analysis.top_features if analysis else []
 
     # ── Routing ───────────────────────────────────────────────────────────────
     new_status: str

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class EmailFeature(Base):
+class EmailFeature(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """NLP and heuristic feature extracted from a single email (FR-03).
 
     Each email produces exactly 7 rows — one per extractor defined in

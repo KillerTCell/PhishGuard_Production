@@ -20,7 +20,7 @@ from app.dependencies import CurrentUser, get_current_user, get_db, require_admi
 from app.models.analysis_result import AnalysisResult
 from app.models.email import Email
 from app.models.email_feature import EmailFeature
-from app.schemas.common import RiskBand
+from app.schemas.common import RiskBand, Severity
 from app.schemas.emails import (
     AttachmentMetadata,
     EmailDetail,
@@ -44,7 +44,7 @@ _MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 # ---------------------------------------------------------------------------
 
 
-def _severity(risk_score: int | None) -> str | None:
+def _severity(risk_score: int | None) -> Severity | None:
     """Derive the severity band from a risk score (0-100).
 
     ``Severity`` is not stored as a DB column — it is computed at read time
@@ -54,18 +54,19 @@ def _severity(risk_score: int | None) -> str | None:
         risk_score: Integer 0-100, or ``None`` when analysis is still pending.
 
     Returns:
-        ``'critical'``, ``'high'``, ``'medium'``, or ``'low'``;
+        :attr:`~Severity.critical`, :attr:`~Severity.high`,
+        :attr:`~Severity.medium`, or :attr:`~Severity.low`;
         ``None`` when *risk_score* is ``None``.
     """
     if risk_score is None:
         return None
     if risk_score >= 90:
-        return "critical"
+        return Severity.critical
     if risk_score >= 80:
-        return "high"
+        return Severity.high
     if risk_score >= 30:
-        return "medium"
-    return "low"
+        return Severity.medium
+    return Severity.low
 
 
 def _dispatch_analysis_chain(email_id: uuid.UUID) -> None:

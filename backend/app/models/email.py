@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -21,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class Email(Base):
+class Email(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Ingested email record — the central entity of the analysis pipeline.
 
     Ingestion sources:
@@ -97,11 +98,11 @@ class Email(Base):
 
     # ── Extracted link and attachment data ──────────────────────────────
     # [{displayed_text, actual_href, is_mismatch}]
-    links: Mapped[list] = mapped_column(
+    links: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
     # [{filename, size, mime_type}] — no binary content (data minimisation)
-    attachment_metadata: Mapped[list] = mapped_column(
+    attachment_metadata: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
 

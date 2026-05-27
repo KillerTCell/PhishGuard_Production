@@ -11,7 +11,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class PasswordResetToken(Base):
+class PasswordResetToken(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Single-use password reset token (D-09 fix — new table in v3).
 
     D-09: prior plan had no dedicated table for password reset tokens,

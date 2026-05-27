@@ -82,7 +82,7 @@ async def get_audit_log(
             user_name=user_map.get(row.user_id) if row.user_id else None,
             action=row.action,
             target_type=row.target_type,
-            target_id=row.target_id,
+            target_id=str(row.target_id) if row.target_id else None,
             detail=row.detail,
             ip_address=str(row.ip_address) if row.ip_address else None,
             created_at=row.created_at,

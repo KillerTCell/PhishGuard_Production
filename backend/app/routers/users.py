@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -24,6 +24,7 @@ from app.schemas.users import (
     RecentAuditAction,
     UserDetailResponse,
     UserListItem,
+    UserRole,
     UserStatsResponse,
     UserUpdateRequest,
 )
@@ -37,7 +38,7 @@ async def _write_audit(
     action: str,
     current_user: CurrentUser,
     request: Request,
-    detail: Optional[dict] = None,
+    detail: Optional[dict[str, Any]] = None,
 ) -> None:
     """Append an audit log row for user management actions."""
     log = AuditLog(
@@ -111,7 +112,7 @@ async def list_users(
             id=u.id,
             full_name=u.full_name,
             email=u.email,
-            role=u.role,
+            role=UserRole(u.role),
             is_active=u.is_active,
             last_active_at=u.last_active_at,
             created_at=u.created_at,
@@ -169,7 +170,7 @@ async def get_user(
         id=user.id,
         full_name=user.full_name,
         email=user.email,
-        role=user.role,
+        role=UserRole(user.role),
         is_active=user.is_active,
         last_active_at=user.last_active_at,
         created_at=user.created_at,
@@ -215,7 +216,7 @@ async def update_user(
             detail="You cannot deactivate your own account",
         )
 
-    changes: dict = {}
+    changes: dict[str, Any] = {}
     if body.role is not None:
         changes["role"] = {"from": user.role, "to": body.role.value}
         user.role = body.role.value
@@ -233,7 +234,7 @@ async def update_user(
         id=user.id,
         full_name=user.full_name,
         email=user.email,
-        role=user.role,
+        role=UserRole(user.role),
         is_active=user.is_active,
         last_active_at=user.last_active_at,
         created_at=user.created_at,

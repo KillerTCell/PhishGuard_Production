@@ -38,7 +38,7 @@ from app.schemas.analysis import (
     SampleEmailResponse,
     SeverityDistribution,
 )
-from app.schemas.common import StatsPeriod
+from app.schemas.common import Severity, StatsPeriod
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["analysis"])
@@ -57,7 +57,7 @@ _FEATURE_NAMES = [
 ]
 
 
-def _severity(risk_score: int | None) -> str | None:
+def _severity(risk_score: int | None) -> Severity | None:
     """Derive severity band from risk score (0-100).
 
     ``severity`` is not a DB column on AnalysisResult — it is computed at
@@ -67,18 +67,19 @@ def _severity(risk_score: int | None) -> str | None:
         risk_score: Integer 0-100, or ``None`` when analysis is pending.
 
     Returns:
-        ``'critical'``, ``'high'``, ``'medium'``, or ``'low'``;
+        :attr:`~Severity.critical`, :attr:`~Severity.high`,
+        :attr:`~Severity.medium`, or :attr:`~Severity.low`;
         ``None`` when *risk_score* is ``None``.
     """
     if risk_score is None:
         return None
     if risk_score >= 90:
-        return "critical"
+        return Severity.critical
     if risk_score >= 80:
-        return "high"
+        return Severity.high
     if risk_score >= 30:
-        return "medium"
-    return "low"
+        return Severity.medium
+    return Severity.low
 
 
 # ---------------------------------------------------------------------------

@@ -19,7 +19,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class DigestLog(Base):
+class DigestLog(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Record of a quarantine digest email sent to an end-recipient (FR-06).
 
     D-07 fix: ``retry_count`` tracks Resend SDK retry attempts.  The

@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 
-class Organisation(Base):
+class Organisation(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() returns Any
     """Multi-tenant root entity (Architecture ①).
 
     Every other table links to this via org_id FK.  The table-level

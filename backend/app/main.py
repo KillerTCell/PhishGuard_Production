@@ -13,8 +13,9 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Callable, MutableMapping
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -110,13 +111,18 @@ class CSPMiddleware:
         """Store the inner ASGI application."""
         self.app = app
 
-    async def __call__(self, scope: dict, receive, send) -> None:  # type: ignore[type-arg]
+    async def __call__(
+        self,
+        scope: MutableMapping[str, Any],
+        receive: Callable[[], Awaitable[MutableMapping[str, Any]]],
+        send: Callable[[MutableMapping[str, Any]], Awaitable[None]],
+    ) -> None:
         """ASGI middleware entry point."""
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
 
-        async def send_with_csp(message: dict) -> None:  # type: ignore[type-arg]
+        async def send_with_csp(message: MutableMapping[str, Any]) -> None:
             if message["type"] == "http.response.start":
                 headers = dict(message.get("headers", []))
                 content_type = headers.get(b"content-type", b"").decode()
@@ -140,7 +146,10 @@ class CSPMiddleware:
 # ---------------------------------------------------------------------------
 
 
-async def _structlog_request_middleware(request: Request, call_next) -> Response:  # type: ignore[type-arg]
+async def _structlog_request_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     """Bind request context and log request completion for every HTTP request.
 
     Binds a UUID ``request_id``, the HTTP method, and the URL path so all
@@ -330,7 +339,7 @@ def create_app() -> FastAPI:
     app.middleware("http")(_structlog_request_middleware)
 
     # ── CSP on HTML responses (S-05) ──────────────────────────────────────
-    app.add_middleware(CSPMiddleware)  # type: ignore[arg-type]
+    app.add_middleware(CSPMiddleware)
 
     # ── Routers ───────────────────────────────────────────────────────────
     # Import deferred to here so that test overrides applied before

@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from pydantic import BaseModel, ConfigDict
 
-from app.schemas.common import UserRole
+from app.schemas.common import UserRole as UserRole  # explicit re-export for mypy --strict
 
 
 # ---------------------------------------------------------------------------

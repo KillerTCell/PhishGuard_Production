@@ -15,9 +15,11 @@ from __future__ import annotations
 import functools
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 import structlog
 from celery import shared_task
+from sqlalchemy.orm import Session, sessionmaker
 
 log = structlog.get_logger(__name__)
 
@@ -28,16 +30,14 @@ log = structlog.get_logger(__name__)
 
 
 @functools.lru_cache(maxsize=1)
-def _sync_session_factory():
+def _sync_session_factory() -> sessionmaker[Session]:
     """Return a cached SQLAlchemy sessionmaker backed by the psycopg2 engine."""
-    from sqlalchemy.orm import sessionmaker  # noqa: PLC0415
-
     from app.core.database import get_sync_engine  # noqa: PLC0415
 
     return sessionmaker(bind=get_sync_engine(), autocommit=False, autoflush=False)
 
 
-def _make_sync_session():
+def _make_sync_session() -> Session:
     """Create a fresh synchronous SQLAlchemy session."""
     return _sync_session_factory()()
 
@@ -47,8 +47,8 @@ def _make_sync_session():
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="maintenance")
-def auto_delete_expired_emails(self) -> None:
+@shared_task(bind=True, queue="maintenance")  # type: ignore[misc]  # Celery lacks complete type stubs
+def auto_delete_expired_emails(self: Any) -> None:
     """Delete emails older than each org's data_retention_days — daily 02:00 UTC.
 
     Algorithm (Section 5.6, Section 3.1):
@@ -98,7 +98,7 @@ def auto_delete_expired_emails(self) -> None:
                 ),
                 {"org_id": org_id, "cutoff": cutoff},
             )
-            deleted_count: int = result.rowcount
+            deleted_count: int = result.rowcount  # type: ignore[attr-defined]  # text() DELETE returns CursorResult with rowcount
             session.commit()
 
             if deleted_count > 0:
@@ -147,8 +147,8 @@ def auto_delete_expired_emails(self) -> None:
 # ---------------------------------------------------------------------------
 
 
-@shared_task(bind=True, queue="maintenance")
-def auto_create_monthly_partition(self) -> None:
+@shared_task(bind=True, queue="maintenance")  # type: ignore[misc]  # Celery lacks complete type stubs
+def auto_create_monthly_partition(self: Any) -> None:
     """Pre-create next month's emails partition — 1st of month at 01:00 UTC (NFR-4).
 
     Runs on the 1st of every month so the next month's partition always exists
