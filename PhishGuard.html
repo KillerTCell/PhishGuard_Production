@@ -1813,50 +1813,145 @@ outline-offset: 2px;
         ];
 
         // =====================================================
-        // API / SERVICE PLACEHOLDERS
+        // API INFRASTRUCTURE
         // =====================================================
 
-        // Base URL for all API calls. Points to the nginx TLS proxy in front of the
-        // FastAPI backend. Change to the Railway public URL before production deploy.
-        const API_BASE_URL = "https://localhost";
+        // Base URL for all API calls — nginx TLS proxy in front of FastAPI.
+        // Change to the Railway public URL before production deploy.
+        const API_BASE = 'https://localhost/api/v1';
 
-        // Helper: build fetch headers that always include the Bearer token (when present)
-        // and mark the request as JSON. Pass an extra object to merge additional headers.
+        // Build fetch headers that always include the Bearer token (when present).
         function authHeaders(extra) {
             const h = { 'Content-Type': 'application/json' };
             if (window.authToken) h['Authorization'] = `Bearer ${window.authToken}`;
             return Object.assign(h, extra || {});
         }
 
-        // Production readiness notes:
-        // - Real authentication must be handled server-side.
-        // - Backend validation is required for every API request.
-        // - Email ingestion must be secure and isolated from the frontend.
-        // - API endpoints must be protected with authentication middleware.
-        // - HTTPS is required before production.
-        // - Sensitive data must not be stored in frontend-only code.
-        // - Database storage must be implemented in the backend.
-        // - Audit logging is recommended.
-        // - Role-based access control must be enforced server-side, not only in the frontend.
+        // Authenticated fetch wrapper — auto-refreshes on 401 via POST /auth/refresh.
+        // Falls back to login screen if refresh also fails.
+        async function apiFetch(path, options = {}) {
+            options.credentials = 'include';
+            options.headers = Object.assign(authHeaders(), options.headers || {});
+            let resp = await fetch(API_BASE + path, options);
+            if (resp.status === 401 && window.authToken) {
+                const refresh = await fetch(`${API_BASE}/auth/refresh`, {
+                    method: 'POST',
+                    credentials: 'include',
+                });
+                if (refresh.ok) {
+                    const data = await refresh.json();
+                    window.authToken = data.access_token;
+                    options.headers['Authorization'] = `Bearer ${window.authToken}`;
+                    resp = await fetch(API_BASE + path, options);
+                } else {
+                    window.authToken = null;
+                    await logout();
+                    throw new Error('Session expired. Please sign in again.');
+                }
+            }
+            return resp;
+        }
 
-        // =====================================================
-        // BACKEND INTEGRATION TODO LIST
-        // =====================================================
-        // TODO: Replace frontend auth fallback with POST /api/auth/login.
-        // TODO: Connect signup to POST /api/auth/register.
-        // TODO: Connect forgot password to POST /api/auth/forgot-password.
-        // TODO: Connect manual analysis to POST /api/analysis/manual.
-        // TODO: Connect .eml upload to POST /api/analysis/upload.
-        // TODO: Connect forwarding inbox to backend email ingestion service.
-        // TODO: Connect digest sending to backend email service.
-        // TODO: Protect Settings and Data Export with backend RBAC.
-        // TODO: Add backend audit logging for privileged actions.
+        // ── Small data helpers ──────────────────────────────────────────
+
+        function capitalize(str) {
+            return str ? str.charAt(0).toUpperCase() + str.slice(1) : '';
+        }
+
+        function formatReceived(isoString) {
+            if (!isoString) return '—';
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffH = (now - date) / 3_600_000;
+            const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            if (diffH < 24) return `Today, ${time}`;
+            if (diffH < 48) return `Yesterday, ${time}`;
+            return date.toLocaleDateString();
+        }
+
+        function formatRelativeTime(isoString) {
+            if (!isoString) return 'Never';
+            const diff = Date.now() - new Date(isoString).getTime();
+            const mins = Math.floor(diff / 60_000);
+            if (mins < 1)  return 'Just now';
+            if (mins < 60) return `${mins} min ago`;
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return `${hours} hr ago`;
+            const days = Math.floor(hours / 24);
+            if (days < 7)  return `${days} days ago`;
+            return new Date(isoString).toLocaleDateString();
+        }
+
+        // Map backend EmailStatus enum to display label and CSS.
+        function statusLabel(status) {
+            const map = {
+                pending: 'Pending', delivered: 'Delivered', flagged: 'Flagged',
+                quarantined: 'Quarantined', confirmed_phishing: 'Confirmed', failed: 'Failed',
+            };
+            return map[status] || capitalize(status);
+        }
+
+        // ── SSE connection ──────────────────────────────────────────────
+        // Persistent EventSource opened after login.  Auto-reconnects on error.
+
+        function connectSSE() {
+            if (!window.authToken) return;
+            disconnectSSE();
+            const url = `${API_BASE}/events?token=${encodeURIComponent(window.authToken)}`;
+            const source = new EventSource(url);
+            window._sseSource = source;
+            source.onmessage = (event) => {
+                try { handleSSEEvent(JSON.parse(event.data)); } catch (_) {}
+            };
+            source.onerror = () => {
+                source.close();
+                setTimeout(() => { if (window.authToken) connectSSE(); }, 5000);
+            };
+        }
+
+        function disconnectSSE() {
+            window._sseSource?.close();
+            window._sseSource = null;
+        }
+
+        function handleSSEEvent(data) {
+            const type = data.type || data.event_type;
+            if (!type) return;
+            switch (type) {
+                case 'scan_complete':
+                    if (currentPage === 'all-emails') renderEmailList();
+                    if (currentPage === 'home') renderDashboard();
+                    break;
+                case 'quarantine_created':
+                    if (currentPage === 'quarantine') { renderQuarantineQueue(); renderDigestPreview(); }
+                    if (currentPage === 'home') renderDashboard();
+                    showAppMessage('New threat quarantined.');
+                    break;
+                case 'threshold_changed':
+                    if (currentPage === 'settings') renderSettings();
+                    break;
+                case 'forwarding_test_complete':
+                    if (currentPage === 'forwarding-inbox') {
+                        hideElement(document.getElementById('forward-test-progress'));
+                        const rc = document.getElementById('forward-test-result');
+                        if (rc) { rc.textContent = 'Test email received and queued for analysis.'; showElement(rc); }
+                    }
+                    break;
+                case 'digest_sent':
+                    showAppMessage('Digest email sent successfully.');
+                    break;
+                case 'export_ready':
+                    if (data.job_id) showAppMessage('Export ready — visit Settings to download.');
+                    if (currentPage === 'settings') renderDataExport();
+                    break;
+            }
+        }
 
         async function loginUser(credentials) {
             // POST /api/v1/auth/login — real backend authentication.
             // Returns a user object on success, or { _error: '<code>' } on failure.
             try {
-                const resp = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+                const resp = await fetch(`${API_BASE}/auth/login`, {
                     method: 'POST',
                     credentials: 'include',           // send/receive the refresh_token cookie
                     headers: { 'Content-Type': 'application/json' },
@@ -1896,7 +1991,7 @@ outline-offset: 2px;
             // POST /api/v1/auth/logout — blacklists the refresh token JTI server-side
             // and clears the HttpOnly refresh_token cookie.
             try {
-                await fetch(`${API_BASE_URL}/api/v1/auth/logout`, {
+                await fetch(`${API_BASE}/auth/logout`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: authHeaders(),
@@ -1904,187 +1999,6 @@ outline-offset: 2px;
             } catch (_) { /* best-effort; always clear local state */ }
             window.authToken = null;
             return { ok: true };
-        }
-
-        async function fetchDashboardStats() {
-            // Future endpoint: GET /api/dashboard/stats
-            await wait(150);
-            return DEMO_DASHBOARD_STATS.ranges[currentDashboardRange];
-        }
-
-        async function fetchEmails() {
-            // Future endpoint: GET /api/emails
-            await wait(150);
-            return [...DEMO_EMAILS];
-        }
-
-        async function fetchQuarantinedEmails() {
-            // Future endpoint: GET /api/emails/quarantine
-            await wait(150);
-            return [...DEMO_QUARANTINED_EMAILS];
-        }
-
-        async function fetchEmailById(emailId) {
-            // Future endpoint: GET /api/emails/:id
-            await wait(150);
-            return DEMO_EMAIL_DETAILS[emailId] || null;
-        }
-
-        async function analyseManualEmail(payload) {
-            // Future endpoint: POST /api/analysis/manual
-            await wait(500);
-            const combined = `${payload.sender} ${payload.subject} ${payload.body}`.toLowerCase();
-            let score = 18;
-            if (combined.includes("password") || combined.includes("login")) score += 28;
-            if (combined.includes("urgent") || combined.includes("action required")) score += 20;
-            if (combined.includes("http://") || combined.includes("192.168")) score += 22;
-            if (combined.includes("fail") || combined.includes("received:")) score += 8;
-            score = Math.min(score, 96);
-
-            const severity = score >= 80 ? "Critical" : score >= 60 ? "High" : score >= 30 ? "Medium" : "Low";
-            return {
-                score,
-                severity,
-                title: `${severity} Risk Review`,
-                description: "Analysis result generated."
-            };
-        }
-
-        async function updateSensitivitySettings(settings) {
-            // Future endpoint: PATCH /api/settings/sensitivity
-            await wait(300);
-            settingsState = { ...settings };
-            return settingsState;
-        }
-
-        async function fetchDigestPreview() {
-            // Future endpoint: GET /api/digest/preview
-            await wait(250);
-            return DEMO_DIGEST_PREVIEW;
-        }
-
-        async function sendDigestPreview() {
-            // Future endpoint: POST /api/digest/send
-            await wait(300);
-            return {
-                ok: true,
-                message: "Digest sent successfully."
-            };
-        }
-
-        async function askAssistant(question) {
-            // Future endpoint: POST /api/assistant/query
-            await wait(500);
-            const normalized = question.toLowerCase();
-            const matchedResponse = DEMO_ASSISTANT_RESPONSES.find(item =>
-                item.match.some(keyword => normalized.includes(keyword))
-            );
-            return matchedResponse
-                ? matchedResponse.response
-                : "This local frontend response can explain the current interface and sample risk evidence. Production answers should come from POST /api/assistant/query with protected backend context.";
-        }
-
-        // Future backend endpoints for integrated pages:
-        // POST /api/analysis/upload             -> analyseUploadedFile(payload)
-        // GET  /api/forwarding/address         -> fetchForwardingAddress()
-        // GET  /api/forwarding/connectors      -> fetchForwardingConnectors()
-        // GET  /api/forwarding/emails          -> fetchForwardedEmails()
-        // POST /api/forwarding/test            -> sendForwardingTest(payload)
-        // GET  /api/export/scope               -> fetchExportScope(config)
-        // POST /api/export/generate            -> generateExport(config)
-        // GET  /api/export/history             -> fetchExportHistory()
-        // GET  /api/admin/users                -> fetchSystemUsers()
-        // POST /api/admin/users/invite         -> inviteUser(payload)
-        // PATCH /api/admin/users/:id/role      -> updateUserRole(userId, role)
-        // PATCH /api/admin/users/:id/deactivate -> deactivateUser(userId)
-
-        async function analyseUploadedFile(payload) {
-            // Future endpoint: POST /api/analysis/upload
-            await wait(400);
-            return { ...DEMO_UPLOAD_RESULT, fileName: payload?.fileName || DEMO_UPLOAD_RESULT.fileName };
-        }
-
-        async function fetchForwardingAddress() {
-            // Future endpoint: GET /api/forwarding/address
-            await wait(100);
-            return DEMO_FORWARDING_ADDRESS;
-        }
-
-        async function fetchForwardingConnectors() {
-            // Future endpoint: GET /api/forwarding/connectors
-            await wait(100);
-            return [...DEMO_FORWARDING_CONNECTORS];
-        }
-
-        async function fetchForwardedEmails() {
-            // Future endpoint: GET /api/forwarding/emails
-            await wait(100);
-            return [...DEMO_FORWARDED_EMAILS];
-        }
-
-        async function sendForwardingTest(payload) {
-            // Future endpoint: POST /api/forwarding/test
-            await wait(300);
-            return { ...DEMO_FORWARDING_TEST_RESULT, payload };
-        }
-
-        async function fetchExportScope(config) {
-            // Future endpoint: GET /api/export/scope
-            await wait(120);
-            return { ...DEMO_EXPORT_SCOPE, config };
-        }
-
-        async function generateExport(config) {
-            // Future endpoint: POST /api/export/generate
-            await wait(350);
-            return {
-                ok: true,
-                message: `Export prepared as ${String(config.format).toUpperCase()}.`
-            };
-        }
-
-        async function fetchExportHistory() {
-            // Future endpoint: GET /api/export/history
-            await wait(100);
-            return [...DEMO_EXPORT_HISTORY];
-        }
-
-        async function fetchSystemUsers() {
-            // Future endpoint: GET /api/admin/users
-            await wait(100);
-            return systemUsersState.map(user => ({ ...user }));
-        }
-
-        async function inviteUser(payload) {
-            // Future endpoint: POST /api/admin/users/invite
-            await wait(250);
-            return {
-                id: Date.now(),
-                name: payload.name,
-                email: payload.email,
-                role: payload.role,
-                status: "Invited",
-                lastActive: "Pending invite"
-            };
-        }
-
-        async function updateUserRole(userId, role) {
-            // Future endpoint: PATCH /api/admin/users/:id/role
-            await wait(200);
-            const user = systemUsersState.find(item => item.id === userId);
-            if (user) user.role = role;
-            return user || null;
-        }
-
-        async function deactivateUser(userId) {
-            // Future endpoint: PATCH /api/admin/users/:id/deactivate
-            await wait(200);
-            const user = systemUsersState.find(item => item.id === userId);
-            if (user) {
-                user.status = "Inactive";
-                user.lastActive = "Deactivated locally";
-            }
-            return user || null;
         }
 
         // =====================================================
@@ -2107,15 +2021,17 @@ outline-offset: 2px;
         let currentPage = "home";
         let activeListPage = "all-emails";
         let previousListPage = "all-emails";
-        let currentEmailId = DEMO_QUARANTINED_EMAILS[0]?.id || DEMO_EMAILS[0].id;
+        let currentEmailId = null;
         let currentDashboardRange = "week";
-        let settingsState = { ...DEMO_SETTINGS };
+        let settingsState = { suspiciousThreshold: 30, phishingThreshold: 80, autoQuarantine: true, subjectWarning: true };
         let selectedUploadFile = null;
         let uploadTimerIds = [];
         let forwardingTimerIds = [];
-        let systemUsersState = DEMO_SYSTEM_USERS.map(user => ({ ...user }));
-        let adminActionsState = DEMO_ADMIN_ACTIONS.map(action => ({ ...action }));
+        let systemUsersState = [];
+        let currentDigestItems = [];
+        let conversationHistory = [];
         let toastTimer = null;
+        let currentExportJobId = null;
 
         // =====================================================
         // SMALL HELPERS
@@ -2351,8 +2267,29 @@ outline-offset: 2px;
 
             setInputInvalid("login-email",    false);
             setInputInvalid("login-password", false);
-            currentUser = { role: user.role, email: user.email, name: user.name };
+
+            // Fetch full profile to get real full_name from the database.
+            try {
+                const meResp = await apiFetch('/auth/me');
+                if (meResp.ok) {
+                    const me = await meResp.json();
+                    user.name     = me.full_name;
+                    user.user_id  = me.id;
+                    user.forwarding_address = me.forwarding_address;
+                }
+            } catch (_) { /* best-effort; email-derived name is the fallback */ }
+
+            currentUser = {
+                role:    user.role,
+                email:   user.email,
+                name:    user.name,
+                user_id: user.user_id,
+                org_id:  user.org_id,
+                org_name: user.org_name,
+                forwarding_address: user.forwarding_address,
+            };
             updateUserProfile();
+            connectSSE();
             openAppShell();
             navigate("home");
             maybeShowRoleBanner();
@@ -2364,75 +2301,13 @@ outline-offset: 2px;
             event.preventDefault();
             clearFormError("signup-error");
             clearAuthMessage();
-
-            // Temporary frontend-only signup for demo testing.
-            // Production signup must use POST /api/auth/register.
-            // Backend must validate input, hash passwords, enforce RBAC, and assign a safe default role.
-            // Never allow users to self-register as Admin.
-
-            const name     = document.getElementById("signup-name").value.trim();
-            const email    = document.getElementById("signup-email").value.trim();
-            const password = document.getElementById("signup-password").value;
-            const confirm  = document.getElementById("signup-confirm").value;
-
-            if (!name) {
-                showFormError("signup-error", "Full name is required.");
-                document.getElementById("signup-name").focus();
-                return;
-            }
-            if (!email) {
-                showFormError("signup-error", "Email address is required.");
-                document.getElementById("signup-email").focus();
-                return;
-            }
-            if (!validateEmail(email)) {
-                showFormError("signup-error", "Enter a valid email address.");
-                document.getElementById("signup-email").focus();
-                return;
-            }
-            if (!password) {
-                showFormError("signup-error", "Password is required.");
-                document.getElementById("signup-password").focus();
-                return;
-            }
-            if (password.length < 8) {
-                showFormError("signup-error", "Password must be at least 8 characters.");
-                document.getElementById("signup-password").focus();
-                return;
-            }
-            if (password !== confirm) {
-                showFormError("signup-error", "Passwords do not match.");
-                document.getElementById("signup-confirm").focus();
-                return;
-            }
-
-            const allUsers = [...DEMO_USERS, ...sessionUsers];
-            if (allUsers.some(u => u.email.toLowerCase() === email.toLowerCase())) {
-                showFormError("signup-error", "An account with this email already exists.");
-                document.getElementById("signup-email").focus();
-                return;
-            }
-
-            const button       = document.getElementById("signup-btn");
-            const originalText = button.innerHTML;
-            button.disabled  = true;
-            button.innerHTML = '<iconify-icon icon="solar:spinner-linear" class="animate-spin text-lg" aria-hidden="true"></iconify-icon><span class="sr-only">Creating account…</span>';
-            await wait(400);
-            button.disabled  = false;
-            button.innerHTML = originalText;
-
-            // Assign lowest-privilege role — never Admin.
-            // POST /api/auth/register — expected payload: { name, email, password }
-            // Backend must assign the default role; frontend must never send a role field.
-            sessionUsers.push({ role: "Analyst", email, password, name });
-
-            // Remember this email so we can show a one-time onboarding banner
-            // the first time the new Analyst signs in.
-            freshSignupEmails.add(email.toLowerCase());
-
-            document.getElementById("signup-form").reset();
+            // PhishGuard uses invite-only account creation.
+            // Admins invite team members via the User Management page.
+            showAuthMessage(
+                "Accounts are created by invitation. Ask your PhishGuard administrator to send you an invite.",
+                "info"
+            );
             switchAuthMode("login");
-            showAuthMessage("Account created. You can now sign in.", "success");
         }
 
         // ─── Forgot Password ──────────────────────────────────────────
@@ -2464,7 +2339,15 @@ outline-offset: 2px;
             const originalText = button.innerHTML;
             button.disabled  = true;
             button.innerHTML = '<iconify-icon icon="solar:spinner-linear" class="animate-spin text-lg" aria-hidden="true"></iconify-icon><span class="sr-only">Sending…</span>';
-            await wait(400);
+
+            try {
+                await fetch(`${API_BASE}/auth/forgot-password`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email }),
+                });
+            } catch (_) { /* intentional: response is always generic */ }
+
             button.disabled  = false;
             button.innerHTML = originalText;
 
@@ -2481,6 +2364,8 @@ outline-offset: 2px;
 
         async function logout() {
             await logoutUser();
+            disconnectSSE();
+            conversationHistory = [];
             currentUser = null;
             updateUserProfile();
             dismissRoleBanner();
@@ -2588,9 +2473,8 @@ outline-offset: 2px;
         // =====================================================
         // QUARANTINE REVIEW QUEUE
         // =====================================================
-        // TODO: Replace fetchQuarantinedEmails() with GET /api/emails/quarantine (paginated, server-filtered).
         async function renderQuarantineQueue() {
-            const tbody = document.getElementById("quarantine-queue-body");
+            const tbody   = document.getElementById("quarantine-queue-body");
             const countEl = document.getElementById("quarantine-queue-count");
             if (!tbody) return;
 
@@ -2601,10 +2485,20 @@ outline-offset: 2px;
                     </td>
                 </tr>`;
 
-            const emails = await fetchQuarantinedEmails();
-            if (countEl) countEl.textContent = `${emails.length} in queue`;
+            let items = [], totalCount = 0;
+            try {
+                const resp = await apiFetch('/quarantine?page_size=50');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    items      = data.items      || [];
+                    totalCount = data.total_count ?? items.length;
+                }
+            } catch (_) {}
 
-            if (!emails.length) {
+            if (countEl) countEl.textContent = `${totalCount} in queue`;
+            setText("quarantine-count-badge", formatNumber(totalCount));
+
+            if (!items.length) {
                 tbody.innerHTML = `
                     <tr>
                         <td colspan="5" class="px-5 py-10 text-center text-slate-500 text-sm">
@@ -2614,24 +2508,24 @@ outline-offset: 2px;
                 return;
             }
 
-            tbody.innerHTML = emails.map(email => `
+            tbody.innerHTML = items.map(email => `
                 <tr class="hover:bg-slate-50/50 transition-colors cursor-pointer" tabindex="0" role="button"
-                    aria-label="Open ${escapeHtml(email.subject)}"
+                    aria-label="Open ${escapeHtml(email.subject || '')}"
                     onclick="openEmailDetail('${email.id}')"
                     onkeydown="handleEmailRowKeydown(event, '${email.id}')">
                     <td class="px-5 py-4 max-w-xs">
-                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender)}</div>
+                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
                     </td>
                     <td class="px-5 py-4 max-w-md">
-                        <div class="text-slate-700 truncate">${escapeHtml(email.subject)}</div>
-                        <div class="text-xs text-slate-500 truncate mt-0.5">${escapeHtml(email.reasonPreview || "")}</div>
+                        <div class="text-slate-700 truncate">${escapeHtml(email.subject || '(no subject)')}</div>
+                        <div class="text-xs text-slate-500 truncate mt-0.5">${escapeHtml(email.top_reason || "")}</div>
                     </td>
                     <td class="px-5 py-4">
-                        <div class="flex items-center font-semibold ${getRiskTextClass(email.riskScore)}">
-                            ${email.riskScore}<span class="text-slate-400 text-xs font-normal ml-1">/100</span>
+                        <div class="flex items-center font-semibold ${getRiskTextClass(email.risk_score ?? 0)}">
+                            ${email.risk_score ?? '—'}<span class="text-slate-400 text-xs font-normal ml-1">/100</span>
                         </div>
                     </td>
-                    <td class="px-5 py-4 text-slate-500 text-sm whitespace-nowrap">${escapeHtml(email.received)}</td>
+                    <td class="px-5 py-4 text-slate-500 text-sm whitespace-nowrap">${escapeHtml(formatReceived(email.received_at))}</td>
                     <td class="px-5 py-4 text-right">
                         <button type="button" onclick="event.stopPropagation(); openEmailDetail('${email.id}')"
                                 class="text-indigo-600 hover:text-indigo-800 font-medium text-xs px-2 py-1">
@@ -2688,7 +2582,7 @@ outline-offset: 2px;
             }
 
             if (pageId === "email-detail" && !currentEmailId) {
-                currentEmailId = DEMO_QUARANTINED_EMAILS[0]?.id || DEMO_EMAILS[0].id;
+                pageId = previousListPage || "all-emails";
             }
 
             currentPage = pageId;
@@ -2810,56 +2704,88 @@ outline-offset: 2px;
         // =====================================================
 
         async function renderDashboard() {
-            const stats = await fetchDashboardStats();
-            setText("stat-total-analysed", formatNumber(stats.totalAnalysed));
-            setText("stat-classified-safe", formatNumber(stats.classifiedSafe));
-            setText("stat-suspicious-emails", formatNumber(stats.suspiciousEmails));
-            setText("stat-quarantined-threats", formatNumber(stats.quarantinedThreats));
-            setText("stat-feedback-labels", formatNumber(stats.feedbackLabels));
-            setText("stat-sensitivity-threshold", stats.sensitivityThreshold);
-            setText("quarantine-count-badge", formatNumber(stats.quarantinedThreats));
+            const periodMap = { week: 'this_week', all: 'all_time' };
+            const period = periodMap[currentDashboardRange] || 'this_week';
 
-            document.getElementById("detection-drivers").innerHTML = stats.detectionDrivers.map(driver => `
+            let stats = null;
+            try {
+                const resp = await apiFetch(`/analysis/stats?period=${period}`);
+                if (resp.ok) stats = await resp.json();
+            } catch (_) {}
+
+            if (!stats) {
+                setText("stat-total-analysed", "—");
+                setText("stat-classified-safe", "—");
+                setText("stat-suspicious-emails", "—");
+                setText("stat-quarantined-threats", "—");
+                setText("stat-feedback-labels", "—");
+                setText("stat-sensitivity-threshold", "—");
+                return;
+            }
+
+            setText("stat-total-analysed",    formatNumber(stats.total_analysed));
+            setText("stat-classified-safe",   formatNumber(stats.safe_count));
+            setText("stat-suspicious-emails", formatNumber(stats.suspicious_count));
+            setText("stat-quarantined-threats", formatNumber(stats.quarantined_count));
+            setText("stat-feedback-labels",   formatNumber(stats.feedback_count));
+            setText("stat-sensitivity-threshold", stats.current_threshold?.phishing ?? "—");
+            setText("quarantine-count-badge", formatNumber(stats.quarantined_count));
+
+            // Detection driver bars
+            const DRIVER_ICONS = {
+                url_mismatch:       "solar:link-linear",
+                auth_failure:       "solar:server-square-linear",
+                urgency_language:   "solar:clock-circle-linear",
+                credential_request: "solar:key-linear",
+                impersonation:      "solar:user-id-linear",
+                grammar_quality:    "solar:text-square-linear",
+            };
+            const DRIVER_COLORS = ["bg-rose-500", "bg-orange-400", "bg-amber-400", "bg-indigo-400", "bg-violet-400", "bg-cyan-400"];
+            document.getElementById("detection-drivers").innerHTML = (stats.detection_driver_breakdown || []).slice(0, 4).map((d, i) => `
                 <div>
                     <div class="flex justify-between text-xs font-medium text-slate-700 mb-1.5">
-                        <div class="flex items-center"><iconify-icon icon="${driver.icon}" class="mr-2 text-slate-400"></iconify-icon> ${escapeHtml(driver.label)}</div>
-                        <span class="text-slate-900 font-semibold">${driver.value}%</span>
+                        <div class="flex items-center"><iconify-icon icon="${DRIVER_ICONS[d.feature_name] || 'solar:chart-linear'}" class="mr-2 text-slate-400"></iconify-icon> ${escapeHtml(d.feature_name.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()))}</div>
+                        <span class="text-slate-900 font-semibold">${Math.round(d.pct)}%</span>
                     </div>
-                    <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden"><div class="${driver.barClass} h-full rounded-full" style="width: ${driver.value}%"></div></div>
+                    <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden"><div class="${DRIVER_COLORS[i] || 'bg-slate-400'} h-full rounded-full" style="width: ${Math.round(d.pct)}%"></div></div>
                 </div>
-            `).join("");
+            `).join("") || '<p class="text-xs text-slate-500">No feature data available yet.</p>';
 
-            Object.entries(stats.severityDistribution).forEach(([key, value]) => {
+            // Severity distribution
+            const sd = stats.severity_distribution || {};
+            const distMap = { critical: sd.critical_pct, high: sd.high_pct, medium: sd.medium_pct, low: sd.low_pct };
+            Object.entries(distMap).forEach(([key, value]) => {
+                const v = Math.round(value || 0);
                 const bar = document.getElementById(`severity-${key}-bar`);
-                const label = document.getElementById(`severity-${key}-value`);
-                if (bar) {
-                    bar.style.width = `${value}%`;
-                    bar.title = `${key[0].toUpperCase()}${key.slice(1)}: ${value}%`;
-                }
-                if (label) label.textContent = `${value}%`;
+                const lbl = document.getElementById(`severity-${key}-value`);
+                if (bar) { bar.style.width = `${v}%`; bar.title = `${capitalize(key)}: ${v}%`; }
+                if (lbl) lbl.textContent = `${v}%`;
             });
 
-            renderRecentQuarantine();
-        }
-
-        async function renderRecentQuarantine() {
-            const emails = (await fetchQuarantinedEmails()).slice(0, 2);
-            document.getElementById("recent-quarantine-body").innerHTML = emails.map(email => `
-                <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer" tabindex="0" role="button" aria-label="Review ${escapeHtml(email.subject)}" onclick="openEmailDetail('${email.id}')" onkeydown="handleEmailRowKeydown(event, '${email.id}')">
-                    <td class="px-5 py-3 max-w-[200px] sm:max-w-xs">
-                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender)}</div>
-                        <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject)}</div>
-                    </td>
-                    <td class="px-5 py-3 font-semibold ${getRiskTextClass(email.riskScore)}">${email.riskScore}</td>
-                    <td class="px-5 py-3">
-                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getSeverityBadgeClass(email.severity)}">${escapeHtml(email.severity)}</span>
-                    </td>
-                    <td class="px-5 py-3 text-slate-500 text-xs hidden md:table-cell truncate max-w-xs">${escapeHtml(email.reasonPreview)}</td>
-                    <td class="px-5 py-3 text-right">
-                        <span class="text-indigo-600 font-medium hover:text-indigo-800 text-xs inline-flex items-center justify-end">Review <iconify-icon icon="solar:arrow-right-linear" class="ml-1"></iconify-icon></span>
-                    </td>
-                </tr>
-            `).join("");
+            // Recent quarantine mini-table driven by stats.recent_quarantined
+            const tbody = document.getElementById("recent-quarantine-body");
+            if (tbody) {
+                const rows = stats.recent_quarantined || [];
+                tbody.innerHTML = rows.slice(0, 2).map(email => `
+                    <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer" tabindex="0" role="button"
+                        aria-label="Review ${escapeHtml(email.subject || '')}"
+                        onclick="openEmailDetail('${email.id}')"
+                        onkeydown="handleEmailRowKeydown(event, '${email.id}')">
+                        <td class="px-5 py-3 max-w-[200px] sm:max-w-xs">
+                            <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
+                            <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
+                        </td>
+                        <td class="px-5 py-3 font-semibold ${getRiskTextClass(email.risk_score ?? 0)}">${email.risk_score ?? '—'}</td>
+                        <td class="px-5 py-3">
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getSeverityBadgeClass(capitalize(email.severity || 'low'))}">${capitalize(email.severity || 'low')}</span>
+                        </td>
+                        <td class="px-5 py-3 text-slate-500 text-xs hidden md:table-cell truncate max-w-xs">${escapeHtml(email.top_reason || '')}</td>
+                        <td class="px-5 py-3 text-right">
+                            <span class="text-indigo-600 font-medium hover:text-indigo-800 text-xs inline-flex items-center justify-end">Review <iconify-icon icon="solar:arrow-right-linear" class="ml-1"></iconify-icon></span>
+                        </td>
+                    </tr>
+                `).join("") || `<tr><td colspan="5" class="px-5 py-8 text-center text-slate-500 text-sm">No quarantined emails yet.</td></tr>`;
+            }
         }
 
         function setDashboardRange(range) {
@@ -2891,19 +2817,26 @@ outline-offset: 2px;
                     </td>
                 </tr>`;
 
-            const sourceEmails = activeListPage === "quarantine" ? await fetchQuarantinedEmails() : await fetchEmails();
-            const searchTerm = document.getElementById("email-search").value.trim().toLowerCase();
+            const searchTerm  = document.getElementById("email-search").value.trim();
             const filterValue = document.getElementById("email-risk-filter").value;
-            const filteredEmails = sourceEmails.filter(email => {
-                const haystack = `${email.sender} ${email.subject} ${email.reasonPreview}`.toLowerCase();
-                const matchesSearch = !searchTerm || haystack.includes(searchTerm);
-                const matchesFilter = filterValue === "all" ||
-                    email.status.toLowerCase() === filterValue ||
-                    email.severity.toLowerCase() === filterValue;
-                return matchesSearch && matchesFilter;
-            });
 
-            if (!filteredEmails.length) {
+            // Build query string — server handles search and filtering.
+            const params = new URLSearchParams({ page_size: 50, sort_by: "received_at", sort_dir: "desc" });
+            if (searchTerm)               params.set("search", searchTerm);
+            if (filterValue && filterValue !== "all") params.set("risk_band", filterValue);
+            if (activeListPage === "quarantine") params.set("status", "quarantined");
+
+            let items = [], total = 0;
+            try {
+                const resp = await apiFetch(`/emails?${params}`);
+                if (resp.ok) {
+                    const data = await resp.json();
+                    items = data.items || [];
+                    total = data.total ?? items.length;
+                }
+            } catch (_) {}
+
+            if (!items.length) {
                 tableBody.innerHTML = `
                     <tr>
                         <td colspan="5" class="px-6 py-10 text-center text-slate-500 text-sm">
@@ -2911,31 +2844,41 @@ outline-offset: 2px;
                         </td>
                     </tr>`;
             } else {
-                tableBody.innerHTML = filteredEmails.map(email => `
-                    <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer email-row" tabindex="0" role="button" aria-label="Open ${escapeHtml(email.subject)}" onclick="openEmailDetail('${email.id}')" onkeydown="handleEmailRowKeydown(event, '${email.id}')">
-                        <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${escapeHtml(email.received)}</td>
+                tableBody.innerHTML = items.map(email => {
+                    const lbl    = statusLabel(email.status);
+                    const score  = email.risk_score ?? 0;
+                    const isDelivered = email.status === "delivered";
+                    return `
+                    <tr class="hover:bg-slate-50/50 transition-colors group cursor-pointer email-row" tabindex="0" role="button"
+                        aria-label="Open ${escapeHtml(email.subject || '')}"
+                        onclick="openEmailDetail('${email.id}')"
+                        onkeydown="handleEmailRowKeydown(event, '${email.id}')">
+                        <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${escapeHtml(formatReceived(email.received_at))}</td>
                         <td class="px-6 py-4 max-w-xs sm:max-w-md">
-                            <div class="font-medium text-slate-900 truncate email-sender">${escapeHtml(email.sender)}</div>
-                            <div class="text-slate-500 truncate text-xs mt-0.5 email-subject">${escapeHtml(email.subject)}</div>
+                            <div class="font-medium text-slate-900 truncate email-sender">${escapeHtml(email.sender || '(unknown)')}</div>
+                            <div class="text-slate-500 truncate text-xs mt-0.5 email-subject">${escapeHtml(email.subject || '(no subject)')}</div>
                         </td>
                         <td class="px-6 py-4">
-                            <div class="flex items-center font-semibold ${getRiskTextClass(email.riskScore)}">
-                                ${email.riskScore} <span class="text-slate-400 text-xs font-normal ml-1">/100</span>
+                            <div class="flex items-center font-semibold ${getRiskTextClass(score)}">
+                                ${score} <span class="text-slate-400 text-xs font-normal ml-1">/100</span>
                             </div>
                         </td>
                         <td class="px-6 py-4">
-                            <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(email.status)}">
-                                ${escapeHtml(email.status)}
+                            <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(lbl)}">
+                                ${escapeHtml(lbl)}
                             </span>
                         </td>
                         <td class="px-6 py-4 text-right">
-                            <button type="button" onclick="event.stopPropagation(); openEmailDetail('${email.id}')" class="${email.status === "Delivered" ? "text-slate-400 hover:text-slate-600" : "text-indigo-600 hover:text-indigo-800"} font-medium text-xs px-2 py-1">${email.status === "Delivered" ? "Details" : "Review"}</button>
+                            <button type="button" onclick="event.stopPropagation(); openEmailDetail('${email.id}')"
+                                class="${isDelivered ? 'text-slate-400 hover:text-slate-600' : 'text-indigo-600 hover:text-indigo-800'} font-medium text-xs px-2 py-1">
+                                ${isDelivered ? 'Details' : 'Review'}
+                            </button>
                         </td>
-                    </tr>
-                `).join("");
+                    </tr>`;
+                }).join("");
             }
 
-            setText("email-results-count", `Showing ${filteredEmails.length} of ${sourceEmails.length} results`);
+            setText("email-results-count", `Showing ${items.length} of ${total} results`);
         }
 
         function clearEmailFilters(shouldRender = true) {
@@ -2962,96 +2905,125 @@ outline-offset: 2px;
         }
 
         async function renderEmailDetail(emailId) {
-            const email = await fetchEmailById(emailId);
+            let email = null;
+            try {
+                const resp = await apiFetch(`/emails/${emailId}`);
+                if (resp.ok) email = await resp.json();
+            } catch (_) {}
+
             if (!email) {
                 showAppMessage("Email detail could not be loaded.");
                 goBackToEmailList();
                 return;
             }
 
-            setText("detail-subject", email.subject);
-            setText("detail-sender", email.sender);
-            setText("detail-recipient", email.recipient);
-            setText("detail-date", email.date);
-            setText("detail-status-badge", email.status);
-            setText("detail-link-heading", email.linkHeading);
-            setText("detail-displayed-link", email.displayedLink);
-            setText("detail-actual-link", email.actualLink);
-            setText("detail-risk-score", email.riskScore);
-            setText("detail-risk-label", `${email.severity} / ${email.status === "Delivered" ? "Reviewed" : "Phishing Risk"}`);
+            setText("detail-subject",  email.subject  || "(no subject)");
+            setText("detail-sender",   email.sender   || "(unknown sender)");
+            setText("detail-recipient",email.recipient_address || "—");
+            setText("detail-date",     new Date(email.received_at).toLocaleString());
 
+            const lbl = statusLabel(email.status);
+            setText("detail-status-badge", lbl);
             const statusBadge = document.getElementById("detail-status-badge");
-            statusBadge.className = `inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase tracking-wider shrink-0 ${getStatusBadgeClass(email.status)}`;
+            statusBadge.className = `inline-flex items-center px-2.5 py-1 rounded-md text-xs font-semibold uppercase tracking-wider shrink-0 ${getStatusBadgeClass(lbl)}`;
 
-            const safeBody = escapeHtml(email.body).replace(
-                escapeHtml(email.displayedLink),
-                `<span class="text-blue-600">${escapeHtml(email.displayedLink)}</span>`
-            );
-            document.getElementById("detail-body").innerHTML = safeBody;
+            // Links
+            const mismatch = (email.links || []).find(l => l.is_mismatch);
+            const firstLink = (email.links || [])[0];
+            const displayed = mismatch?.displayed_text || firstLink?.displayed_text || "No external link";
+            const actual    = mismatch?.actual_href    || firstLink?.actual_href    || "No external link";
+            setText("detail-link-heading", mismatch ? "Suspicious Link Mismatch Detected" : "Link Evidence");
+            setText("detail-displayed-link", displayed);
+            setText("detail-actual-link",    actual);
 
+            // Body
+            document.getElementById("detail-body").textContent = email.body_text || "(no content)";
+
+            // Auth headers
             ["spf", "dkim", "dmarc"].forEach(key => {
-                const element = document.getElementById(`detail-${key}`);
-                element.textContent = email.headers[key];
-                element.className = `text-sm font-semibold ${getHeaderClass(email.headers[key])}`;
+                const el  = document.getElementById(`detail-${key}`);
+                const val = (email[key] || "unknown").toUpperCase();
+                el.textContent = val;
+                el.className   = `text-sm font-semibold ${getHeaderClass(val)}`;
             });
 
-            document.getElementById("detail-explanations").innerHTML = email.explanations.map(item => {
-                const iconClass = item.tone === "safe" ? "text-emerald-500" : item.tone === "warning" ? "text-amber-500" : "text-rose-500";
+            const score = email.risk_score ?? 0;
+            const sev   = capitalize(email.severity || "low");
+            setText("detail-risk-score", score || "—");
+            setText("detail-risk-label", `${sev} / ${email.status === "delivered" ? "Reviewed" : "Phishing Risk"}`);
+
+            // Feature explanations
+            document.getElementById("detail-explanations").innerHTML = (email.top_features || []).map(f => {
+                const contrib   = f.score_contribution ?? 0;
+                const tone      = contrib > 0.3 ? "critical" : contrib > 0.1 ? "warning" : "safe";
+                const iconClass = tone === "safe" ? "text-emerald-500" : tone === "warning" ? "text-amber-500" : "text-rose-500";
+                const label     = f.name.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
                 return `
                     <li class="flex items-start">
                         <iconify-icon icon="solar:check-circle-linear" class="${iconClass} mr-2 mt-0.5 shrink-0" stroke-width="2"></iconify-icon>
-                        <span>${escapeHtml(item.text)}</span>
+                        <span>${escapeHtml(label)}</span>
                     </li>`;
-            }).join("");
+            }).join("") || '<li class="text-slate-500 text-sm">No feature breakdown available.</li>';
 
-            const scoreClasses = getScoreCardClasses(email.riskScore);
-            const card = document.getElementById("detail-score-card");
-            const header = document.getElementById("detail-score-header");
-            card.className = `bg-white rounded-2xl border ${scoreClasses.border} shadow-sm overflow-hidden`;
-            header.className = `${scoreClasses.header} text-white p-6 text-center`;
-
+            const scoreClasses = getScoreCardClasses(score);
+            document.getElementById("detail-score-card").className  = `bg-white rounded-2xl border ${scoreClasses.border} shadow-sm overflow-hidden`;
+            document.getElementById("detail-score-header").className = `${scoreClasses.header} text-white p-6 text-center`;
             document.getElementById("detail-action-status").classList.add("hidden");
         }
 
-        function handleAction(action) {
-            const status = document.getElementById("detail-action-status");
+        async function handleAction(action) {
+            const status   = document.getElementById("detail-action-status");
+            const actionMap = { confirmed: 'confirm', investigate: 'investigate', safe: 'release' };
+            const endpoint  = actionMap[action];
+            if (!endpoint || !currentEmailId) return;
+
+            let ok = false;
+            try {
+                const resp = await apiFetch(`/quarantine/${currentEmailId}/${endpoint}`, { method: 'POST' });
+                ok = resp.ok;
+            } catch (_) {}
+
             const messages = {
-                confirmed: "Email confirmed as phishing. Marked for removal.",
+                confirmed:   "Email confirmed as phishing.",
                 investigate: "Flagged for further investigation.",
-                safe: "Email released from quarantine."
+                safe:        "Email released from quarantine.",
             };
-            status.textContent = messages[action] || "Action recorded.";
+            status.textContent = ok ? (messages[action] || "Action recorded.") : "Action could not be completed. Please try again.";
             status.classList.remove("hidden");
             showAppMessage(status.textContent);
         }
 
         // =====================================================
         // MANUAL ANALYSIS (Paste Email tab)
-        // TODO: Backend — replace analyseManualEmail() stub with POST /api/analysis/manual
-        //   Request body: { sender, subject, body, addToTraining }
-        //   Response: { score: number, title: string, description: string }
+        // POST /analysis/paste → poll GET /analysis/{id}/status
         // =====================================================
 
-        // Fills all three fields with a pre-built phishing sample for quick demonstration.
-        // Remove or hide this button in production once real data is available.
-        function fillSample() {
-            document.getElementById("ma-sender").value = DEMO_MANUAL_SAMPLE.sender;
-            document.getElementById("ma-subject").value = DEMO_MANUAL_SAMPLE.subject;
-            document.getElementById("ma-body").value = DEMO_MANUAL_SAMPLE.body;
-            document.getElementById("ma-body").focus();
-            hideElement(document.getElementById("ma-message"));
+        // Load a real phishing sample from the backend for quick demonstration.
+        async function fillSample() {
+            try {
+                const resp = await apiFetch('/analysis/sample');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById("ma-sender").value  = data.sender     || '';
+                    document.getElementById("ma-subject").value = data.subject    || '';
+                    document.getElementById("ma-body").value    = data.raw_source || '';
+                    document.getElementById("ma-body").focus();
+                    hideElement(document.getElementById("ma-message"));
+                }
+            } catch (_) {
+                showAppMessage("Could not load sample. Check your connection.");
+            }
         }
 
-        // Form submit handler — validates input, calls analysis service, renders result card.
+        // Form submit — POST /analysis/paste, then poll GET /analysis/{id}/status.
         async function analyzeEmail(event) {
             event.preventDefault();
-            const sender = document.getElementById("ma-sender").value.trim();
+            const sender  = document.getElementById("ma-sender").value.trim();
             const subject = document.getElementById("ma-subject").value.trim();
-            const body = document.getElementById("ma-body").value.trim();
+            const body    = document.getElementById("ma-body").value.trim();
             const message = document.getElementById("ma-message");
-            const button = document.getElementById("ma-btn");
+            const button  = document.getElementById("ma-btn");
 
-            // Validate: body is the only required field
             if (!body) {
                 message.textContent = "Paste email content before analysing.";
                 message.classList.remove("hidden");
@@ -3062,43 +3034,62 @@ outline-offset: 2px;
             hideElement(message);
             hideElement(document.getElementById("ma-result"));
             const originalText = button.innerHTML;
-            button.disabled = true;
+            button.disabled  = true;
             button.innerHTML = '<iconify-icon icon="solar:spinner-linear" class="mr-2 text-lg animate-spin"></iconify-icon> Processing...';
 
-            // TODO: Backend — replace analyseManualEmail() with fetch(API_BASE_URL + "/api/analysis/manual", { method: "POST", body: JSON.stringify({...}) })
-            const result = await analyseManualEmail({
-                sender,
-                subject,
-                body,
-                addToTraining: document.getElementById("ma-training").checked
-            });
+            try {
+                const resp = await apiFetch('/analysis/paste', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        sender:          sender  || null,
+                        subject:         subject || null,
+                        raw_source:      body,
+                        add_to_training: document.getElementById("ma-training").checked,
+                    }),
+                });
+                if (!resp.ok) throw new Error('Analysis request failed.');
+                const { email_id } = await resp.json();
 
-            button.disabled = false;
-            button.innerHTML = originalText;
-            // Populate and reveal the inline result card
-            setText("ma-result-score", result.score);
-            setText("ma-result-title", result.title);
-            setText("ma-result-description", result.description);
-            showElement(document.getElementById("ma-result"));
+                // Poll until analysis is complete (max 60 s).
+                let result = null;
+                for (let i = 0; i < 60; i++) {
+                    await wait(1000);
+                    const poll = await apiFetch(`/analysis/${email_id}/status`);
+                    if (poll.ok) {
+                        const d = await poll.json();
+                        if (d.status !== 'pending') { result = d; break; }
+                    }
+                }
+                if (!result) throw new Error('Analysis timed out. Please try again.');
+
+                const score = result.risk_score ?? 0;
+                const sev   = capitalize(result.severity || 'low');
+                setText("ma-result-score",       score);
+                setText("ma-result-title",       `${sev} Risk`);
+                setText("ma-result-description", result.explanation || "Analysis complete.");
+                showElement(document.getElementById("ma-result"));
+            } catch (err) {
+                message.textContent = err.message || "Analysis failed. Please try again.";
+                message.classList.remove("hidden");
+            } finally {
+                button.disabled  = false;
+                button.innerHTML = originalText;
+            }
         }
 
         // =====================================================
         // UPLOAD FILE ZONE (Upload .eml tab)
-        // TODO: Backend — replace startAnalysisMock() with multipart POST /api/analysis/upload
-        //   Request: FormData { file: File }
-        //   Response: { riskScore, classification, evidence: string[], metadata: object }
-        //   Drive progress bar from server-sent events or polling /api/analysis/status/:jobId
+        // POST /emails/upload (multipart) → poll GET /analysis/{id}/status
         // =====================================================
 
         function formatFileSize(bytes) {
-            if (!Number.isFinite(bytes) || bytes <= 0) return DEMO_UPLOAD_RESULT.fileSize;
+            if (!Number.isFinite(bytes) || bytes <= 0) return "—";
             if (bytes < 1024) return `${bytes} B`;
             if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
             return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
         }
 
         function renderUploadFileZone() {
-            renderUploadResult(DEMO_UPLOAD_RESULT);
             renderUploadSteps(-1);
             if (selectedUploadFile) {
                 updateSelectedUploadFile();
@@ -3143,14 +3134,13 @@ outline-offset: 2px;
         }
 
         function mockSelectFile(file) {
-            selectedUploadFile = file ? {
-                name: file.name,
-                size: file.size,
-                type: file.type || DEMO_UPLOAD_RESULT.fileType
-            } : {
-                name: DEMO_UPLOAD_RESULT.fileName,
-                size: 43008,
-                type: DEMO_UPLOAD_RESULT.fileType
+            if (!file) return;
+            // Preserve the real File object so the upload POST can send it.
+            selectedUploadFile = {
+                name:        file.name,
+                size:        file.size,
+                type:        file.type || "message/rfc822",
+                _fileObject: file,   // real File for FormData
             };
             updateSelectedUploadFile();
             hideUploadMessage();
@@ -3162,7 +3152,7 @@ outline-offset: 2px;
             const selected = document.getElementById("dropzone-selected");
             const analyseButton = document.getElementById("btn-analyse-header");
             setText("upload-selected-name", selectedUploadFile.name);
-            setText("upload-selected-meta", `${formatFileSize(selectedUploadFile.size)} · ${selectedUploadFile.type || DEMO_UPLOAD_RESULT.fileType}`);
+            setText("upload-selected-meta", `${formatFileSize(selectedUploadFile.size)} · ${selectedUploadFile.type || "message/rfc822"}`);
             selected?.classList.remove("hidden");
             analyseButton?.removeAttribute("disabled");
         }
@@ -3184,10 +3174,17 @@ outline-offset: 2px;
             uploadTimerIds = [];
         }
 
+        const UPLOAD_STEPS = [
+            { label: "File received",     detail: "Email source received and queued for analysis." },
+            { label: "Headers inspected", detail: "Authentication and routing metadata extracted."  },
+            { label: "Links reviewed",    detail: "URL and domain mismatch evidence compared."      },
+            { label: "Risk summary",      detail: "Risk score and evidence summary prepared."       },
+        ];
+
         function renderUploadSteps(activeIndex) {
             const list = document.getElementById("upload-step-list");
             if (!list) return;
-            list.innerHTML = DEMO_UPLOAD_RESULT.analysisSteps.map((step, index) => {
+            list.innerHTML = UPLOAD_STEPS.map((step, index) => {
                 const complete = index <= activeIndex;
                 return `
                     <div class="${complete ? "bg-indigo-50 border-indigo-100 text-indigo-700" : "bg-slate-50 border-slate-100 text-slate-500"} border rounded-xl p-3">
@@ -3198,8 +3195,9 @@ outline-offset: 2px;
             }).join("");
         }
 
-        function startAnalysisMock() {
-            if (!selectedUploadFile) {
+        // POST /emails/upload (multipart), then poll GET /analysis/{id}/status.
+        async function startAnalysisMock() {
+            if (!selectedUploadFile?._fileObject) {
                 showUploadMessage("Select a file before starting analysis.");
                 return;
             }
@@ -3208,27 +3206,69 @@ outline-offset: 2px;
             hideUploadMessage();
             hideElement(document.getElementById("results-column"));
             showElement(document.getElementById("progress-card"));
-            setText("progress-text", "Starting file analysis...");
-            setText("progress-percent", "0%");
-            document.getElementById("progress-bar").style.width = "0%";
+            setText("progress-text", "Uploading file…");
+            setText("progress-percent", "10%");
+            document.getElementById("progress-bar").style.width = "10%";
             renderUploadSteps(-1);
 
-            DEMO_UPLOAD_RESULT.analysisSteps.forEach((step, index) => {
-                const timerId = setTimeout(async () => {
-                    setText("progress-text", step.detail);
-                    setText("progress-percent", `${step.percent}%`);
-                    document.getElementById("progress-bar").style.width = `${step.percent}%`;
-                    renderUploadSteps(index);
+            try {
+                const form = new FormData();
+                form.append("file", selectedUploadFile._fileObject);
 
-                    if (index === DEMO_UPLOAD_RESULT.analysisSteps.length - 1) {
-                        const result = await analyseUploadedFile({ fileName: selectedUploadFile.name });
-                        renderUploadResult(result);
-                        showElement(document.getElementById("results-column"));
-                        showAppMessage("File analysis complete.");
+                const uploadResp = await fetch(`${API_BASE}/emails/upload`, {
+                    method: 'POST',
+                    credentials: 'include',
+                    headers: window.authToken ? { Authorization: `Bearer ${window.authToken}` } : {},
+                    body: form,
+                });
+                if (!uploadResp.ok) throw new Error('Upload failed — check the file format.');
+                const { email_id } = await uploadResp.json();
+
+                setText("progress-text", "Analysing email…");
+                setText("progress-percent", "30%");
+                document.getElementById("progress-bar").style.width = "30%";
+                renderUploadSteps(0);
+
+                // Poll until complete (max 120 s).
+                let result = null;
+                for (let i = 0; i < 120; i++) {
+                    await wait(1000);
+                    const poll = await apiFetch(`/analysis/${email_id}/status`);
+                    if (poll.ok) {
+                        const d = await poll.json();
+                        if (d.status !== 'pending') { result = d; break; }
                     }
-                }, 500 * (index + 1));
-                uploadTimerIds.push(timerId);
-            });
+                    const pct = Math.min(30 + i, 90);
+                    setText("progress-percent", `${pct}%`);
+                    document.getElementById("progress-bar").style.width = `${pct}%`;
+                    const stepIdx = Math.floor(i / 40);
+                    if (stepIdx >= 1 && stepIdx <= 2) renderUploadSteps(stepIdx);
+                }
+                if (!result) throw new Error('Analysis timed out. Please try again.');
+
+                setText("progress-text", "Analysis complete.");
+                setText("progress-percent", "100%");
+                document.getElementById("progress-bar").style.width = "100%";
+                renderUploadSteps(3);
+
+                const score = result.risk_score ?? 0;
+                const sev   = capitalize(result.severity || 'low');
+                setText("upload-risk-score", score);
+                setText("upload-risk-label", `${sev} Risk`);
+
+                const evList = document.getElementById("upload-evidence-list");
+                if (evList) {
+                    evList.innerHTML = result.explanation
+                        ? `<li class="flex items-start"><iconify-icon icon="solar:danger-triangle-linear" class="text-amber-500 mr-2 mt-0.5 shrink-0"></iconify-icon><span>${escapeHtml(result.explanation)}</span></li>`
+                        : '<li class="text-slate-500 text-sm">No detailed evidence available.</li>';
+                }
+
+                showElement(document.getElementById("results-column"));
+                showAppMessage("File analysis complete.");
+            } catch (err) {
+                hideElement(document.getElementById("progress-card"));
+                showUploadMessage(err.message || "Upload failed. Please try again.");
+            }
         }
 
         function renderUploadResult(result) {
@@ -3270,54 +3310,74 @@ outline-offset: 2px;
         // =====================================================
 
         async function renderForwardingInbox() {
-            setText("forward-address", await fetchForwardingAddress());
-            const connectors = await fetchForwardingConnectors();
+            // GET /forwarding — address + connector status + setup instructions
+            let fwdStatus = null;
+            try {
+                const resp = await apiFetch('/forwarding');
+                if (resp.ok) fwdStatus = await resp.json();
+            } catch (_) {}
+
+            const forwardingAddress = fwdStatus?.forwarding_address || currentUser?.forwarding_address || "—";
+            setText("forward-address", forwardingAddress);
+
             const connectorContainer = document.getElementById("forwarding-connectors");
-            if (connectorContainer) {
-                connectorContainer.innerHTML = connectors.map(connector => {
-                    const statusClass = connector.status === "Ready"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                        : connector.status === "Needs backend"
-                            ? "bg-amber-50 text-amber-700 border-amber-100"
-                            : "bg-indigo-50 text-indigo-700 border-indigo-100";
-                    return `
-                        <div class="border border-slate-100 rounded-xl p-4">
-                            <div class="flex items-start justify-between gap-3">
-                                <div>
-                                    <h3 class="text-sm font-semibold text-slate-900">${escapeHtml(connector.name)}</h3>
-                                    <p class="text-xs text-slate-500 mt-1 leading-relaxed">${escapeHtml(connector.description)}</p>
-                                </div>
-                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider border ${statusClass}">${escapeHtml(connector.status)}</span>
+            if (connectorContainer && fwdStatus) {
+                const cs = fwdStatus.connector_status;
+                const statusClass = cs === "active"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-100"
+                    : cs === "error"
+                        ? "bg-rose-50 text-rose-700 border-rose-100"
+                        : "bg-amber-50 text-amber-700 border-amber-100";
+                const label = cs === "active" ? "Active" : cs === "error" ? "Error" : "Unconfigured";
+                const instructions = (fwdStatus.setup_instructions || []).map(i => `<p class="text-xs text-slate-500 mt-1">Step ${i.step}: ${escapeHtml(i.text)}</p>`).join("");
+                connectorContainer.innerHTML = `
+                    <div class="border border-slate-100 rounded-xl p-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="text-sm font-semibold text-slate-900">IMAP Connector</h3>
+                                ${fwdStatus.imap_user ? `<p class="text-xs text-slate-500 mt-1">Connected as ${escapeHtml(fwdStatus.imap_user)}</p>` : instructions}
                             </div>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider border ${statusClass}">${label}</span>
                         </div>
-                    `;
-                }).join("");
+                    </div>`;
             }
 
-            const emails = await fetchForwardedEmails();
-            setText("forwarded-count", `${emails.length} messages`);
+            // GET /forwarding/emails — paginated list
+            let fwdEmails = [];
+            try {
+                const resp = await apiFetch('/forwarding/emails?page_size=20');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    fwdEmails = data.items || [];
+                }
+            } catch (_) {}
+
+            setText("forwarded-count", `${fwdEmails.length} messages`);
             const tableBody = document.getElementById("forwarded-email-body");
             if (!tableBody) return;
-            tableBody.innerHTML = emails.length ? emails.map(email => `
+            tableBody.innerHTML = fwdEmails.length ? fwdEmails.map(email => {
+                const lbl   = statusLabel(email.status);
+                const score = email.risk_score ?? 0;
+                return `
                 <tr class="hover:bg-slate-50/50 transition-colors">
-                    <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${escapeHtml(email.received)}</td>
+                    <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${escapeHtml(formatReceived(email.ingested_at))}</td>
                     <td class="px-6 py-4 max-w-xs">
-                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender)}</div>
-                        <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject)}</div>
+                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
+                        <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
                     </td>
-                    <td class="px-6 py-4 font-semibold ${getRiskTextClass(email.riskScore)}">${email.riskScore}<span class="text-slate-400 text-xs font-normal ml-1">/100</span></td>
-                    <td class="px-6 py-4"><span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(email.status)}">${escapeHtml(email.status)}</span></td>
+                    <td class="px-6 py-4 font-semibold ${getRiskTextClass(score)}">${score}<span class="text-slate-400 text-xs font-normal ml-1">/100</span></td>
+                    <td class="px-6 py-4"><span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(lbl)}">${escapeHtml(lbl)}</span></td>
                     <td class="px-6 py-4 text-right">
-                        <button type="button" onclick="openEmailDetail('${email.emailId}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-xs px-2 py-1">View</button>
+                        <button type="button" onclick="openEmailDetail('${email.id}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-xs px-2 py-1">View</button>
                     </td>
-                </tr>
-            `).join("") : `
+                </tr>`;
+            }).join("") : `
                 <tr><td colspan="5" class="px-6 py-10 text-center text-slate-500 text-sm">No forwarded emails are available.</td></tr>
             `;
         }
 
         async function copyAddress() {
-            const address = DEMO_FORWARDING_ADDRESS;
+            const address = document.getElementById("forward-address")?.textContent?.trim() || "";
             const status = document.getElementById("forward-copy-status");
             try {
                 if (navigator.clipboard?.writeText) {
@@ -3349,35 +3409,32 @@ outline-offset: 2px;
             forwardingTimerIds = [];
         }
 
-        function runForwardingTest() {
-            // Connect this action to POST /api/forwarding/test when the backend is ready.
+        async function runForwardingTest() {
             clearForwardingTimers();
             hideElement(document.getElementById("forward-test-default"));
             hideElement(document.getElementById("forward-test-result"));
             showElement(document.getElementById("forward-test-progress"));
-            setText("fw-progress-text", "Preparing forwarded message...");
-            document.getElementById("fw-progress-bar").style.width = "20%";
+            setText("fw-progress-text", "Sending test email…");
+            document.getElementById("fw-progress-bar").style.width = "30%";
 
-            const steps = [
-                { text: "Sending message to forwarding address...", width: "45%" },
-                { text: "Checking routing metadata...", width: "75%" },
-                { text: "Preparing result...", width: "100%" }
-            ];
-
-            steps.forEach((step, index) => {
-                const timerId = setTimeout(async () => {
-                    setText("fw-progress-text", step.text);
-                    document.getElementById("fw-progress-bar").style.width = step.width;
-                    if (index === steps.length - 1) {
-                        const result = await sendForwardingTest({ address: DEMO_FORWARDING_ADDRESS });
-                        hideElement(document.getElementById("forward-test-progress"));
-                        const resultCard = document.getElementById("forward-test-result");
-                        resultCard.textContent = result.message;
-                        showElement(resultCard);
-                    }
-                }, 450 * (index + 1));
-                forwardingTimerIds.push(timerId);
-            });
+            try {
+                const resp = await apiFetch('/forwarding/test', { method: 'POST' });
+                document.getElementById("fw-progress-bar").style.width = "100%";
+                await wait(400);
+                hideElement(document.getElementById("forward-test-progress"));
+                const resultCard = document.getElementById("forward-test-result");
+                if (resp.ok) {
+                    const data = await resp.json();
+                    resultCard.textContent = data.message || "Test email sent. Check Recent forwarded emails.";
+                } else {
+                    resultCard.textContent = "Test email could not be sent. Check your IMAP configuration.";
+                }
+                showElement(resultCard);
+            } catch (_) {
+                hideElement(document.getElementById("forward-test-progress"));
+                showElement(document.getElementById("forward-test-default"));
+                showAppMessage("Forwarding test failed. Check your connection.");
+            }
         }
 
         // =====================================================
@@ -3385,50 +3442,51 @@ outline-offset: 2px;
         // =====================================================
 
         async function renderDataExport() {
-            const scope = await fetchExportScope(getExportConfig());
-            setText("export-scope-emails", formatNumber(scope.emails));
-            setText("export-scope-phishing", formatNumber(scope.phishing));
-            setText("export-scope-safe", formatNumber(scope.safe));
-            setText("export-scope-review", formatNumber(scope.review));
-
-            const previewBody = document.getElementById("export-preview-body");
-            if (previewBody) {
-                previewBody.innerHTML = DEMO_EXPORT_PREVIEW_ROWS.map(row => `
-                    <tr>
-                        <td class="px-5 py-3 max-w-xs truncate font-medium text-slate-900">${escapeHtml(row.subject)}</td>
-                        <td class="px-5 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${row.label === "Safe" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : row.label === "Phishing" ? "bg-rose-50 text-rose-700 border border-rose-100" : "bg-amber-50 text-amber-700 border border-amber-100"}">${escapeHtml(row.label)}</span></td>
-                        <td class="px-5 py-3 font-semibold ${getRiskTextClass(row.riskScore)}">${row.riskScore}</td>
-                        <td class="px-5 py-3 text-slate-500">${escapeHtml(row.source)}</td>
-                    </tr>
-                `).join("");
-            }
-
-            const history = await fetchExportHistory();
-            const historyBody = document.getElementById("export-history-body");
-            if (historyBody) {
-                historyBody.innerHTML = history.length ? history.map(row => `
-                    <tr>
-                        <td class="px-5 py-3 text-slate-500">${escapeHtml(row.created)}</td>
-                        <td class="px-5 py-3 font-medium text-slate-900">${escapeHtml(row.format)}</td>
-                        <td class="px-5 py-3">${formatNumber(row.records)}</td>
-                        <td class="px-5 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100">${escapeHtml(row.status)}</span></td>
-                    </tr>
-                `).join("") : `
-                    <tr><td colspan="4" class="px-5 py-10 text-center text-slate-500 text-sm">No export history is available.</td></tr>
-                `;
+            // Clear scope counts — will be populated when an export is generated.
+            // The POST /settings/export response returns estimated_scope.
+            if (currentExportJobId) {
+                // Poll status of the last export job.
+                try {
+                    const pollResp = await apiFetch(`/settings/export/${currentExportJobId}`);
+                    if (pollResp.ok) {
+                        const job = await pollResp.json();
+                        if (job.estimated_scope) {
+                            setText("export-scope-emails",   formatNumber(job.estimated_scope.emails));
+                            setText("export-scope-phishing", formatNumber(job.estimated_scope.phishing));
+                            setText("export-scope-safe",     formatNumber(job.estimated_scope.safe));
+                            setText("export-scope-review",   formatNumber(job.estimated_scope.review));
+                        }
+                        const hbody = document.getElementById("export-history-body");
+                        if (hbody && job.status) {
+                            const statusClass = job.status === "ready" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-indigo-50 text-indigo-700 border border-indigo-100";
+                            hbody.innerHTML = `
+                                <tr>
+                                    <td class="px-5 py-3 text-slate-500">${job.created_at ? new Date(job.created_at).toLocaleString() : "—"}</td>
+                                    <td class="px-5 py-3 font-medium text-slate-900">${escapeHtml((job.format || "").toUpperCase())}</td>
+                                    <td class="px-5 py-3">${formatNumber(job.estimated_scope?.emails ?? 0)}</td>
+                                    <td class="px-5 py-3 flex items-center gap-2">
+                                        <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${statusClass}">${capitalize(job.status)}</span>
+                                        ${job.status === 'ready' ? `<a href="${API_BASE}/settings/export/${currentExportJobId}" class="text-indigo-600 hover:underline text-xs font-medium">Download</a>` : ''}
+                                    </td>
+                                </tr>`;
+                        }
+                    }
+                } catch (_) {}
+            } else {
+                const hbody = document.getElementById("export-history-body");
+                if (hbody) hbody.innerHTML = `<tr><td colspan="4" class="px-5 py-10 text-center text-slate-500 text-sm">No export history is available.</td></tr>`;
             }
         }
 
         function getExportConfig() {
             return {
-                format: document.getElementById("export-format")?.value || "csv",
-                dateRange: document.getElementById("export-date-range")?.value || "7d",
-                labelFilter: document.getElementById("export-label-filter")?.value || "all"
+                format:      document.getElementById("export-format")?.value      || "csv",
+                dateRange:   document.getElementById("export-date-range")?.value  || "7d",
+                labelFilter: document.getElementById("export-label-filter")?.value || "all",
             };
         }
 
         async function runExportTest(event) {
-            // Connect this action to POST /api/export/generate when the backend is ready.
             event?.preventDefault();
             const status = document.getElementById("export-status");
             const button = document.getElementById("export-run-btn");
@@ -3440,17 +3498,49 @@ outline-offset: 2px;
             status.classList.add("text-slate-500");
             button.disabled = true;
 
-            const config = getExportConfig();
-            await fetchExportScope(config);
-            const result = await generateExport(config);
+            try {
+                const config = getExportConfig();
+                const resp = await apiFetch('/settings/export', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        format:       config.format,
+                        date_range:   config.dateRange,
+                        label_filter: config.labelFilter,
+                    }),
+                });
 
-            button.disabled = false;
-            hideElement(document.getElementById("export-action-loading"));
-            const success = document.getElementById("export-action-success");
-            success.textContent = result.message;
-            showElement(success);
-            status.textContent = "Export request submitted.";
-            showAppMessage(status.textContent);
+                button.disabled = false;
+                hideElement(document.getElementById("export-action-loading"));
+
+                if (resp.ok) {
+                    const data = await resp.json();
+                    currentExportJobId = data.job_id;
+                    // Update scope counts from response
+                    if (data.estimated_scope) {
+                        setText("export-scope-emails",   formatNumber(data.estimated_scope.emails));
+                        setText("export-scope-phishing", formatNumber(data.estimated_scope.phishing));
+                        setText("export-scope-safe",     formatNumber(data.estimated_scope.safe));
+                        setText("export-scope-review",   formatNumber(data.estimated_scope.review));
+                    }
+                    const success = document.getElementById("export-action-success");
+                    success.textContent = `Export queued as ${String(config.format).toUpperCase()}. Polling for completion…`;
+                    showElement(success);
+                    status.textContent = "Export job submitted.";
+                    showAppMessage(status.textContent);
+                    renderDataExport(); // show job in history
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    showElement(document.getElementById("export-action-default"));
+                    status.textContent = err.message || "Export request failed.";
+                    status.classList.add("text-rose-600");
+                }
+            } catch (_) {
+                button.disabled = false;
+                hideElement(document.getElementById("export-action-loading"));
+                showElement(document.getElementById("export-action-default"));
+                status.textContent = "Export failed. Check your connection.";
+                status.classList.add("text-rose-600");
+            }
         }
 
         function resetExportTest() {
@@ -3460,6 +3550,7 @@ outline-offset: 2px;
             showElement(document.getElementById("export-action-default"));
             const status = document.getElementById("export-status");
             if (status) status.classList.add("hidden");
+            currentExportJobId = null;
             renderDataExport();
         }
 
@@ -3473,49 +3564,85 @@ outline-offset: 2px;
                 return;
             }
 
-            const users = await fetchSystemUsers();
-            setText("user-stat-total", users.length);
-            setText("user-stat-admins", users.filter(user => user.role === "Admin").length);
-            setText("user-stat-analysts", users.filter(user => user.role === "Analyst").length);
-            setText("user-stat-active", users.filter(user => user.status === "Active").length);
+            // Fetch stats, user list, and audit log in parallel.
+            const [statsResp, usersResp, auditResp] = await Promise.allSettled([
+                apiFetch('/users/stats'),
+                apiFetch('/users'),
+                apiFetch('/audit-log?page_size=10'),
+            ]);
 
-            const tableBody = document.getElementById("system-users-body");
-            if (tableBody) {
-                tableBody.innerHTML = users.map(user => `
-                    <tr>
-                        <th scope="row" class="px-5 py-3 font-medium text-slate-900">
-                            <div>${escapeHtml(user.name)}</div>
-                            <div class="text-xs text-slate-500 font-normal mt-0.5">${escapeHtml(user.email)}</div>
-                        </th>
-                        <td class="px-5 py-3">
-                            <label for="role-${user.id}" class="sr-only">Role for ${escapeHtml(user.name)}</label>
-                            <select id="role-${user.id}" onchange="handleUserRoleChange(${user.id}, this.value)" class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500" ${user.email === currentUser.email ? "disabled" : ""}>
-                                <option value="Admin" ${user.role === "Admin" ? "selected" : ""}>Admin</option>
-                                <option value="Analyst" ${user.role === "Analyst" ? "selected" : ""}>Analyst</option>
-                            </select>
-                        </td>
-                        <td class="px-5 py-3"><span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${user.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : user.status === "Invited" ? "bg-indigo-50 text-indigo-700 border border-indigo-100" : "bg-slate-100 text-slate-600 border border-slate-200"}">${escapeHtml(user.status)}</span></td>
-                        <td class="px-5 py-3 text-slate-500">${escapeHtml(user.lastActive)}</td>
-                        <td class="px-5 py-3 text-right">
-                            <button type="button" onclick="requestDeactivateUser(${user.id})" class="text-rose-600 hover:text-rose-800 font-medium text-xs px-2 py-1 disabled:text-slate-300 disabled:cursor-not-allowed" ${user.status === "Inactive" || user.email === currentUser.email ? "disabled" : ""}>Deactivate</button>
-                        </td>
-                    </tr>
-                `).join("");
+            if (statsResp.status === 'fulfilled' && statsResp.value.ok) {
+                const stats = await statsResp.value.json();
+                setText("user-stat-total",    stats.total);
+                setText("user-stat-admins",   stats.admins);
+                setText("user-stat-analysts", stats.analysts);
+                setText("user-stat-active",   stats.active);
             }
 
-            const actions = document.getElementById("admin-actions-log");
-            if (actions) {
-                actions.innerHTML = adminActionsState.map(action => `
-                    <div class="p-4 flex items-start">
-                        <div class="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 shrink-0">
-                            <iconify-icon icon="solar:history-linear" class="text-lg" aria-hidden="true"></iconify-icon>
+            if (usersResp.status === 'fulfilled' && usersResp.value.ok) {
+                const data  = await usersResp.value.json();
+                const users = data.items || data;
+                // Cache locally so requestDeactivateUser can look up names.
+                systemUsersState = users.map(u => ({
+                    id:         u.id,
+                    name:       u.full_name,
+                    email:      u.email,
+                    role:       capitalize(u.role),
+                    status:     u.is_active ? "Active" : "Inactive",
+                    lastActive: u.last_active_at ? formatRelativeTime(u.last_active_at) : "Never",
+                }));
+
+                const tableBody = document.getElementById("system-users-body");
+                if (tableBody) {
+                    tableBody.innerHTML = systemUsersState.map(user => `
+                        <tr>
+                            <th scope="row" class="px-5 py-3 font-medium text-slate-900">
+                                <div>${escapeHtml(user.name)}</div>
+                                <div class="text-xs text-slate-500 font-normal mt-0.5">${escapeHtml(user.email)}</div>
+                            </th>
+                            <td class="px-5 py-3">
+                                <label for="role-${user.id}" class="sr-only">Role for ${escapeHtml(user.name)}</label>
+                                <select id="role-${user.id}" onchange="handleUserRoleChange('${user.id}', this.value)"
+                                    class="px-2 py-1.5 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                                    ${user.email === currentUser.email ? "disabled" : ""}>
+                                    <option value="Admin"   ${user.role === "Admin"   ? "selected" : ""}>Admin</option>
+                                    <option value="Analyst" ${user.role === "Analyst" ? "selected" : ""}>Analyst</option>
+                                </select>
+                            </td>
+                            <td class="px-5 py-3">
+                                <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${
+                                    user.status === "Active"   ? "bg-emerald-50 text-emerald-700 border border-emerald-100" :
+                                    user.status === "Invited"  ? "bg-indigo-50 text-indigo-700 border border-indigo-100" :
+                                                                 "bg-slate-100 text-slate-600 border border-slate-200"
+                                }">${escapeHtml(user.status)}</span>
+                            </td>
+                            <td class="px-5 py-3 text-slate-500">${escapeHtml(user.lastActive)}</td>
+                            <td class="px-5 py-3 text-right">
+                                <button type="button" onclick="requestDeactivateUser('${user.id}')"
+                                    class="text-rose-600 hover:text-rose-800 font-medium text-xs px-2 py-1 disabled:text-slate-300 disabled:cursor-not-allowed"
+                                    ${user.status === "Inactive" || user.email === currentUser.email ? "disabled" : ""}>Deactivate</button>
+                            </td>
+                        </tr>
+                    `).join("");
+                }
+            }
+
+            if (auditResp.status === 'fulfilled' && auditResp.value.ok) {
+                const data    = await auditResp.value.json();
+                const actions = document.getElementById("admin-actions-log");
+                if (actions) {
+                    actions.innerHTML = (data.items || []).map(entry => `
+                        <div class="p-4 flex items-start">
+                            <div class="w-8 h-8 rounded-lg bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-500 shrink-0">
+                                <iconify-icon icon="solar:history-linear" class="text-lg" aria-hidden="true"></iconify-icon>
+                            </div>
+                            <div class="ml-3">
+                                <p class="text-sm font-medium text-slate-900">${escapeHtml(entry.action)}</p>
+                                <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(entry.user_name || 'System')} · ${escapeHtml(new Date(entry.created_at).toLocaleString())}</p>
+                            </div>
                         </div>
-                        <div class="ml-3">
-                            <p class="text-sm font-medium text-slate-900">${escapeHtml(action.action)}</p>
-                            <p class="text-xs text-slate-500 mt-0.5">${escapeHtml(action.actor)} · ${escapeHtml(action.time)}</p>
-                        </div>
-                    </div>
-                `).join("");
+                    `).join("") || '<div class="p-4 text-sm text-slate-500">No audit activity yet.</div>';
+                }
             }
         }
 
@@ -3533,23 +3660,19 @@ outline-offset: 2px;
 
         async function handleInviteUser(event) {
             event.preventDefault();
-            const nameInput = document.getElementById("invite-name");
             const emailInput = document.getElementById("invite-email");
-            const roleInput = document.getElementById("invite-role");
-            const name = nameInput.value.trim();
-            const email = emailInput.value.trim();
-            const role = roleInput.value;
+            const roleInput  = document.getElementById("invite-role");
+            const email      = emailInput.value.trim();
+            const role       = roleInput.value;
 
-            [nameInput, emailInput, roleInput].forEach(input => input.setAttribute("aria-invalid", "false"));
-            if (!name || !email || !role) {
-                if (!name) nameInput.setAttribute("aria-invalid", "true");
+            [emailInput, roleInput].forEach(input => input.setAttribute("aria-invalid", "false"));
+            if (!email || !role) {
                 if (!email) emailInput.setAttribute("aria-invalid", "true");
-                if (!role) roleInput.setAttribute("aria-invalid", "true");
-                setUserManagementStatus("Name, email, and role are required.", "error");
-                (!name ? nameInput : !email ? emailInput : roleInput).focus();
+                if (!role)  roleInput.setAttribute("aria-invalid", "true");
+                setUserManagementStatus("Email and role are required.", "error");
+                (!email ? emailInput : roleInput).focus();
                 return;
             }
-
             if (!emailInput.validity.valid) {
                 emailInput.setAttribute("aria-invalid", "true");
                 setUserManagementStatus("Enter a valid email address.", "error");
@@ -3557,74 +3680,85 @@ outline-offset: 2px;
                 return;
             }
 
-            const createdUser = await inviteUser({ name, email, role });
-            systemUsersState.push(createdUser);
-            adminActionsState.unshift({
-                actor: currentUser.name,
-                action: `Invited ${createdUser.name} as ${createdUser.role}`,
-                time: "Just now"
-            });
-            event.currentTarget.reset();
-            setUserManagementStatus("Invite prepared.", "success");
-            renderUserManagement();
+            try {
+                const resp = await apiFetch('/auth/invite', {
+                    method: 'POST',
+                    body: JSON.stringify({ email, role: role.toLowerCase() }),
+                });
+                if (resp.ok) {
+                    event.currentTarget.reset();
+                    setUserManagementStatus("Invite sent successfully.", "success");
+                    renderUserManagement();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    setUserManagementStatus(data.message || "Invite failed.", "error");
+                }
+            } catch (_) {
+                setUserManagementStatus("Invite failed. Check your connection.", "error");
+            }
         }
 
         async function handleUserRoleChange(userId, role) {
-            // Role changes must be enforced server-side through PATCH /api/admin/users/:id/role.
-            const updatedUser = await updateUserRole(userId, role);
-            if (!updatedUser) {
-                setUserManagementStatus("User could not be updated.", "error");
-                return;
+            try {
+                const resp = await apiFetch(`/users/${userId}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ role: role.toLowerCase() }),
+                });
+                if (!resp.ok) { setUserManagementStatus("Role could not be updated.", "error"); return; }
+                setUserManagementStatus("Role updated.", "success");
+                renderUserManagement();
+            } catch (_) {
+                setUserManagementStatus("Role update failed. Check your connection.", "error");
             }
-            adminActionsState.unshift({
-                actor: currentUser.name,
-                action: `Changed ${updatedUser.name} to ${role}`,
-                time: "Just now"
-            });
-            setUserManagementStatus("Role updated.", "success");
-            renderUserManagement();
         }
 
         function requestDeactivateUser(userId) {
             const user = systemUsersState.find(item => item.id === userId);
             if (!user) return;
             if (user.email === currentUser.email) {
-                setUserManagementStatus("The signed-in user cannot be deactivated in this frontend workflow.", "error");
+                setUserManagementStatus("You cannot deactivate your own account.", "error");
                 return;
             }
-
             setUserManagementStatus(`
                 <span class="block mb-3">Deactivate ${escapeHtml(user.name)}?</span>
                 <span class="inline-flex gap-2">
-                    <button type="button" onclick="confirmDeactivateUser(${user.id})" class="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-rose-700 transition-colors">Confirm</button>
-                    <button type="button" onclick="setUserManagementStatus('Deactivate action cancelled.', 'info')" class="bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button type="button" onclick="confirmDeactivateUser('${userId}')" class="bg-rose-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-rose-700 transition-colors">Confirm</button>
+                    <button type="button" onclick="setUserManagementStatus('Deactivation cancelled.', 'info')" class="bg-white border border-slate-200 text-slate-600 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-slate-50 transition-colors">Cancel</button>
                 </span>
             `, "info", true);
         }
 
         async function confirmDeactivateUser(userId) {
-            // Deactivation must be enforced server-side through PATCH /api/admin/users/:id/deactivate.
-            const user = await deactivateUser(userId);
-            if (!user) {
-                setUserManagementStatus("User could not be deactivated.", "error");
-                return;
+            try {
+                const resp = await apiFetch(`/users/${userId}`, { method: 'DELETE' });
+                if (!resp.ok) { setUserManagementStatus("User could not be deactivated.", "error"); return; }
+                setUserManagementStatus("User deactivated.", "success");
+                renderUserManagement();
+            } catch (_) {
+                setUserManagementStatus("Deactivation failed. Check your connection.", "error");
             }
-            adminActionsState.unshift({
-                actor: currentUser.name,
-                action: `Deactivated ${user.name}`,
-                time: "Just now"
-            });
-            setUserManagementStatus("User deactivated.", "success");
-            renderUserManagement();
         }
 
         // =====================================================
         // SETTINGS
         // =====================================================
 
-        function renderSettings() {
-            document.getElementById("suspicious-slider").value = settingsState.suspiciousThreshold;
-            document.getElementById("phish-slider").value = settingsState.phishingThreshold;
+        async function renderSettings() {
+            try {
+                const resp = await apiFetch('/settings');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    settingsState = {
+                        suspiciousThreshold: data.suspicious_threshold,
+                        phishingThreshold:   data.phishing_threshold,
+                        autoQuarantine:      data.auto_quarantine_high_risk,
+                        subjectWarning:      data.prepend_subject_warning,
+                    };
+                }
+            } catch (_) { /* fall back to cached settingsState */ }
+
+            document.getElementById("suspicious-slider").value      = settingsState.suspiciousThreshold;
+            document.getElementById("phish-slider").value           = settingsState.phishingThreshold;
             document.getElementById("auto-quarantine-toggle").checked = settingsState.autoQuarantine;
             document.getElementById("subject-warning-toggle").checked = settingsState.subjectWarning;
             updateSettingsPreview();
@@ -3632,16 +3766,16 @@ outline-offset: 2px;
 
         function updateSettingsPreview() {
             setText("suspicious-val", document.getElementById("suspicious-slider").value);
-            setText("phish-val", document.getElementById("phish-slider").value);
+            setText("phish-val",      document.getElementById("phish-slider").value);
         }
 
         async function saveSettings() {
             const status = document.getElementById("settings-status");
             const settings = {
                 suspiciousThreshold: Number(document.getElementById("suspicious-slider").value),
-                phishingThreshold: Number(document.getElementById("phish-slider").value),
-                autoQuarantine: document.getElementById("auto-quarantine-toggle").checked,
-                subjectWarning: document.getElementById("subject-warning-toggle").checked
+                phishingThreshold:   Number(document.getElementById("phish-slider").value),
+                autoQuarantine:      document.getElementById("auto-quarantine-toggle").checked,
+                subjectWarning:      document.getElementById("subject-warning-toggle").checked,
             };
 
             if (settings.suspiciousThreshold >= settings.phishingThreshold) {
@@ -3651,12 +3785,34 @@ outline-offset: 2px;
                 return;
             }
 
-            await updateSensitivitySettings(settings);
-            status.textContent = "Configuration saved.";
-            status.classList.remove("hidden", "text-rose-600");
-            status.classList.add("text-emerald-600");
-            showAppMessage(status.textContent);
-            renderDashboard();
+            try {
+                const resp = await apiFetch('/settings', {
+                    method: 'PATCH',
+                    body: JSON.stringify({
+                        suspicious_threshold:      settings.suspiciousThreshold,
+                        phishing_threshold:        settings.phishingThreshold,
+                        auto_quarantine_high_risk: settings.autoQuarantine,
+                        prepend_subject_warning:   settings.subjectWarning,
+                    }),
+                });
+                if (resp.ok) {
+                    settingsState = settings;
+                    status.textContent = "Configuration saved.";
+                    status.classList.remove("hidden", "text-rose-600");
+                    status.classList.add("text-emerald-600");
+                    showAppMessage(status.textContent);
+                    renderDashboard();
+                } else {
+                    const data = await resp.json().catch(() => ({}));
+                    status.textContent = data.message || "Save failed. Check threshold values.";
+                    status.classList.remove("hidden", "text-emerald-600");
+                    status.classList.add("text-rose-600");
+                }
+            } catch (_) {
+                status.textContent = "Save failed. Check your connection.";
+                status.classList.remove("hidden", "text-emerald-600");
+                status.classList.add("text-rose-600");
+            }
         }
 
         // =====================================================
@@ -3664,29 +3820,46 @@ outline-offset: 2px;
         // =====================================================
 
         async function renderDigestPreview() {
-            const digest = await fetchDigestPreview();
-            setText("digest-title", digest.title);
-            setText("digest-summary", digest.summary);
-            document.getElementById("digest-items").innerHTML = digest.items.map(item => `
+            let items = [], totalCount = 0;
+            try {
+                const resp = await apiFetch('/quarantine?page_size=20');
+                if (resp.ok) {
+                    const data = await resp.json();
+                    items      = data.items      || [];
+                    totalCount = data.total_count ?? items.length;
+                }
+            } catch (_) {}
+
+            // Cache so sendDigest can iterate.
+            currentDigestItems = items;
+
+            setText("digest-title",   `You have ${totalCount} quarantined message${totalCount !== 1 ? 's' : ''}`);
+            setText("digest-summary", "PhishGuard identified the following emails for review.");
+
+            document.getElementById("digest-items").innerHTML = items.slice(0, 5).map(item => {
+                const score    = item.risk_score ?? 0;
+                const riskLabel = score >= 80 ? "High Risk" : score >= 30 ? "Suspicious" : "Safe";
+                const riskClass = score >= 80 ? "text-rose-600 bg-rose-100" : score >= 30 ? "text-amber-600 bg-amber-100" : "text-emerald-600 bg-emerald-100";
+                return `
                 <div class="flex items-center gap-3 px-4 py-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-0.5">
-                            <span class="text-xs font-medium text-slate-900 truncate">${escapeHtml(item.sender)}</span>
-                            <span class="text-[10px] font-bold uppercase tracking-wider ${item.riskClass} px-1.5 py-0.5 rounded shrink-0">${escapeHtml(item.riskLabel)}</span>
+                            <span class="text-xs font-medium text-slate-900 truncate">${escapeHtml(item.sender || '(unknown)')}</span>
+                            <span class="text-[10px] font-bold uppercase tracking-wider ${riskClass} px-1.5 py-0.5 rounded shrink-0">${riskLabel}</span>
                         </div>
-                        <p class="text-xs text-slate-500 truncate">${escapeHtml(item.subject)}</p>
+                        <p class="text-xs text-slate-500 truncate">${escapeHtml(item.subject || '(no subject)')}</p>
                     </div>
                     <div class="flex items-center gap-1.5 shrink-0">
-                        <button type="button" onclick="handleDigestAction('release')" class="text-xs font-medium text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-50 transition-colors">Release</button>
-                        <button type="button" onclick="handleDigestAction('report')" class="text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg hover:bg-indigo-100 transition-colors">Report</button>
+                        <button type="button" onclick="handleDigestAction('release', '${item.id}')" class="text-xs font-medium text-slate-500 bg-white border border-slate-200 px-2.5 py-1 rounded-lg hover:bg-slate-50 transition-colors">Release</button>
+                        <button type="button" onclick="handleDigestAction('confirm', '${item.id}')" class="text-xs font-medium text-indigo-600 bg-indigo-50 border border-indigo-100 px-2.5 py-1 rounded-lg hover:bg-indigo-100 transition-colors">Confirm</button>
                     </div>
-                </div>
-            `).join("");
+                </div>`;
+            }).join("") || '<div class="px-4 py-8 text-center text-slate-500 text-sm">No quarantined emails.</div>';
         }
 
         async function refreshDigestPreview() {
             const status = document.getElementById("digest-status");
-            status.textContent = "Refreshing preview...";
+            status.textContent = "Refreshing preview…";
             status.classList.remove("hidden", "text-rose-600");
             status.classList.add("text-emerald-600");
             await renderDigestPreview();
@@ -3695,22 +3868,45 @@ outline-offset: 2px;
 
         async function sendDigest() {
             const status = document.getElementById("digest-status");
-            status.textContent = "Preparing digest request...";
+            status.textContent = "Sending digest emails…";
             status.classList.remove("hidden", "text-rose-600");
             status.classList.add("text-emerald-600");
-            const result = await sendDigestPreview();
-            status.textContent = result.message;
-            showAppMessage(result.message);
+
+            const targets = currentDigestItems.slice(0, 5);
+            if (!targets.length) {
+                status.textContent = "No quarantined emails to send digests for.";
+                return;
+            }
+
+            let sent = 0;
+            for (const item of targets) {
+                try {
+                    const resp = await apiFetch(`/quarantine/${item.id}/send-digest`, { method: 'POST' });
+                    if (resp.ok) sent++;
+                } catch (_) {}
+            }
+
+            const msg = sent > 0 ? `${sent} digest email${sent !== 1 ? 's' : ''} queued for delivery.` : "Digest send failed. Check recipient addresses.";
+            status.textContent = msg;
+            showAppMessage(msg);
         }
 
-        function handleDigestAction(action) {
-            const status = document.getElementById("digest-status");
-            status.textContent = action === "release"
-                ? "Email released from quarantine."
-                : "Email reported and flagged for review.";
-            status.classList.remove("hidden", "text-rose-600");
-            status.classList.add("text-emerald-600");
+        async function handleDigestAction(action, emailId) {
+            const endpoint = action === 'release' ? 'release' : 'confirm';
+            const status   = document.getElementById("digest-status");
+            let ok = false;
+            try {
+                const resp = await apiFetch(`/quarantine/${emailId}/${endpoint}`, { method: 'POST' });
+                ok = resp.ok;
+            } catch (_) {}
+            status.textContent = ok
+                ? (action === 'release' ? "Email released from quarantine." : "Email confirmed as phishing.")
+                : "Action could not be completed.";
+            status.classList.remove("hidden");
+            status.classList.toggle("text-emerald-600", ok);
+            status.classList.toggle("text-rose-600", !ok);
             showAppMessage(status.textContent);
+            if (ok) await renderDigestPreview();
         }
 
         // =====================================================
@@ -3722,22 +3918,26 @@ outline-offset: 2px;
             if (container.dataset.initialized === "true") return;
             container.dataset.initialized = "true";
             container.innerHTML = "";
-            appendAssistantMessage("Hi! I can explain how PhishGuard scores email risk, walk through evidence on a sample message, or answer general questions about email security indicators.");
+            conversationHistory = [];
+            appendAssistantMessage("Hi! I can explain how PhishGuard scores email risk, walk you through email security indicators, or answer questions about your organisation's current detection settings.");
         }
 
         function handleAssistantSubmit(event) {
             event.preventDefault();
             const input = document.getElementById("ai-input");
-            appendChat(input.value);
+            const text  = input.value.trim();
+            if (!text) return;
             input.value = "";
+            appendChat(text);
         }
 
         async function appendChat(text) {
             const question = text.trim();
             if (!question) return;
             const container = document.getElementById("chat-container");
-            const initials = currentUser ? getInitials(currentUser.name) : "U";
+            const initials  = currentUser ? getInitials(currentUser.name) : "U";
 
+            // Append user bubble
             container.insertAdjacentHTML("beforeend", `
                 <div class="flex items-start justify-end max-w-3xl ml-auto">
                     <div class="mr-3 bg-indigo-600 text-white rounded-2xl rounded-tr-sm p-4 text-sm leading-relaxed shadow-sm">
@@ -3747,11 +3947,58 @@ outline-offset: 2px;
                 </div>`);
             container.scrollTop = container.scrollHeight;
 
-            const loadingId = `assistant-loading-${Date.now()}`;
-            appendAssistantMessage("Preparing local response...", loadingId);
-            const response = await askAssistant(question);
-            const loadingMessage = document.getElementById(loadingId);
-            if (loadingMessage) loadingMessage.querySelector("p").textContent = response;
+            // Append loading assistant bubble
+            const bubbleId = `assistant-bubble-${Date.now()}`;
+            appendAssistantMessage("", bubbleId);
+            const bubbleP = document.querySelector(`#${bubbleId} p`);
+
+            // Build conversation history (stateless backend)
+            conversationHistory.push({ role: "user", content: question });
+            if (conversationHistory.length > 50) conversationHistory.splice(0, conversationHistory.length - 50);
+
+            // POST /analysis/assistant — streams SSE text/event-stream
+            let assistantText = "";
+            try {
+                const resp = await apiFetch('/analysis/assistant', {
+                    method: 'POST',
+                    body: JSON.stringify({ messages: conversationHistory, local_mode: false }),
+                });
+
+                if (!resp.ok || !resp.body) throw new Error("Assistant unavailable.");
+
+                const reader  = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer    = "";
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split("\n");
+                    buffer = lines.pop();         // keep incomplete line
+                    for (const line of lines) {
+                        if (!line.startsWith("data: ")) continue;
+                        const raw = line.slice(6).trim();
+                        if (raw === "[DONE]") break;
+                        try {
+                            const chunk = JSON.parse(raw);
+                            if (chunk.text) {
+                                assistantText += chunk.text;
+                                if (bubbleP) bubbleP.textContent = assistantText;
+                                container.scrollTop = container.scrollHeight;
+                            }
+                        } catch (_) {}
+                    }
+                }
+            } catch (err) {
+                assistantText = err.message || "I could not reach the assistant. Please try again.";
+                if (bubbleP) bubbleP.textContent = assistantText;
+            }
+
+            // Add assistant reply to history for multi-turn context
+            if (assistantText) {
+                conversationHistory.push({ role: "assistant", content: assistantText });
+            }
             container.scrollTop = container.scrollHeight;
         }
 
@@ -3763,7 +4010,7 @@ outline-offset: 2px;
                         <iconify-icon icon="solar:smart-speaker-linear" class="text-indigo-600"></iconify-icon>
                     </div>
                     <div class="ml-3 bg-slate-50 border border-slate-200 rounded-2xl rounded-tl-sm p-4 text-sm text-slate-700 leading-relaxed shadow-sm">
-                        <p>${escapeHtml(message)}</p>
+                        <p>${escapeHtml(message) || '<span class="text-slate-400 animate-pulse">Thinking…</span>'}</p>
                     </div>
                 </div>`);
             container.scrollTop = container.scrollHeight;
@@ -3773,43 +4020,30 @@ outline-offset: 2px;
         // EVENT LISTENERS & INIT
         // =====================================================
 
-        document.addEventListener("DOMContentLoaded", () => {
+        document.addEventListener("DOMContentLoaded", async () => {
             document.getElementById("login-view").classList.remove("hidden");
             document.getElementById("app-layout").classList.add("hidden");
             document.getElementById("login-email").focus();
             updateUserProfile();
-            renderUploadFileZone();
-            renderForwardingInbox();
-            renderDataExport();
-            renderSettings();
-            renderDigestPreview();
-            renderAssistantIntro();
+
+            // Health check — warn if backend is unreachable before login attempt.
+            try {
+                const ctrl   = new AbortController();
+                const tId    = setTimeout(() => ctrl.abort(), 5000);
+                const health = await fetch(`${API_BASE}/health`, { signal: ctrl.signal });
+                clearTimeout(tId);
+                if (!health.ok) showAppMessage("Backend is starting up. Please wait a moment before signing in.");
+            } catch (_) {
+                showAppMessage("Backend is not reachable. Check that the server is running.");
+            }
 
             document.addEventListener("keydown", event => {
                 if (event.key === "Escape") closeSidebar();
             });
         });
 
-        // =====================================================
-        // WHERE TO REPLACE DEMO DATA WITH PRODUCTION DATA
-        // =====================================================
-        // DEMO_USERS                 -> POST /api/auth/login
-        // DEMO_DASHBOARD_STATS       -> GET  /api/dashboard/stats
-        // DEMO_EMAILS                -> GET  /api/emails
-        // DEMO_QUARANTINED_EMAILS    -> GET  /api/emails/quarantine
-        // DEMO_EMAIL_DETAILS         -> GET  /api/emails/:id
-        // DEMO_SETTINGS              -> GET/PATCH /api/settings/sensitivity
-        // DEMO_DIGEST_PREVIEW        -> GET  /api/digest/preview
-        // DEMO_ASSISTANT_RESPONSES   -> POST /api/assistant/query
-        // DEMO_UPLOAD_RESULT         -> POST /api/analysis/upload
-        // DEMO_FORWARDING_ADDRESS    -> GET  /api/forwarding/address
-        // DEMO_FORWARDING_CONNECTORS -> GET  /api/forwarding/connectors
-        // DEMO_FORWARDED_EMAILS      -> GET  /api/forwarding/emails
-        // DEMO_EXPORT_SCOPE          -> GET  /api/export/scope
-        // DEMO_EXPORT_PREVIEW_ROWS   -> GET  /api/export/preview
-        // DEMO_EXPORT_HISTORY        -> GET  /api/export/history
-        // DEMO_SYSTEM_USERS          -> GET  /api/admin/users
-        // DEMO_ADMIN_ACTIONS         -> GET  /api/admin/actions
+        // All API calls are now wired to the real backend at API_BASE.
+        // Change API_BASE to the Railway public URL before production deploy.
     </script>
 
 </body></html>
