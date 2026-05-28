@@ -24,7 +24,7 @@ from app.core.config import settings
 
 log = structlog.get_logger(__name__)
 
-_FROM_ADDRESS = "noreply@phishguard.app"
+_FROM_ADDRESS = "PhishGuard <onboarding@resend.dev>"
 _APP_BASE_URL = f"https://{settings.FORWARDING_DOMAIN}"
 
 
