@@ -179,7 +179,7 @@ def forwarding_test(self: Any, org_id: str, user_id: str) -> None:
         "plain",
         "utf-8",
     )
-    msg["From"] = "test@phishguard.app"
+    msg["From"] = "test@resend.dev"
     msg["To"] = org.imap_user
     msg["Subject"] = f"PhishGuard Connectivity Test — {timestamp}"
     msg["Date"] = datetime.now(timezone.utc).strftime("%a, %d %b %Y %H:%M:%S +0000")
