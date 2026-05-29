@@ -2085,7 +2085,8 @@ outline-offset: 2px;
         let currentDigestItems = [];
         let conversationHistory = [];
         let toastTimer = null;
-        let currentExportJobId = null;
+        let currentExportJobId  = null;
+        let exportPollInterval  = null;   // setInterval handle for export status polling
 
         // =====================================================
         // SMALL HELPERS
@@ -3650,21 +3651,25 @@ outline-offset: 2px;
         }
 
         async function renderDataExport() {
-            // Clear scope counts — will be populated when an export is generated.
-            // The POST /settings/export response returns estimated_scope.
+            // Poll status of the last export job (called once on page load and
+            // every 3 s by exportPollInterval after a job is submitted).
+            // GET /settings/export/{id} returns JSON (pending/generating/failed)
+            // OR a binary FileResponse when status='ready'. Detect via Content-Type.
             if (currentExportJobId) {
-                // Poll status of the last export job.
-                // GET /settings/export/{id} returns JSON (pending/generating/failed)
-                // OR a binary FileResponse (ready). Check Content-Type to distinguish.
                 try {
                     const pollResp = await apiFetch(`/settings/export/${currentExportJobId}`);
                     if (pollResp.ok) {
                         const contentType = pollResp.headers.get('content-type') || '';
                         const hbody = document.getElementById("export-history-body");
+                        const cfg   = getExportConfig();
+
                         if (!contentType.includes('application/json')) {
-                            // Binary FileResponse — job is ready, file is downloadable.
+                            // ── Binary FileResponse: status is 'ready' ────────────
+                            // Stop polling — no need to check again.
+                            if (exportPollInterval) { clearInterval(exportPollInterval); exportPollInterval = null; }
+
+                            // Update history row with Ready badge + Download button.
                             if (hbody) {
-                                const cfg = getExportConfig();
                                 hbody.innerHTML = `
                                     <tr>
                                         <td class="px-5 py-3 text-slate-500">${new Date().toLocaleString()}</td>
@@ -3677,7 +3682,27 @@ outline-offset: 2px;
                                         </td>
                                     </tr>`;
                             }
+
+                            // Auto-trigger the download using the response blob we already have.
+                            try {
+                                const blob = await pollResp.blob();
+                                const url  = URL.createObjectURL(blob);
+                                const a    = document.createElement('a');
+                                a.href     = url;
+                                a.download = `phishguard-export.${cfg.format}`;
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                                const successEl = document.getElementById("export-action-success");
+                                if (successEl) successEl.textContent = 'Export downloaded. Click Download to save again.';
+                                showAppMessage('Export downloaded successfully.');
+                            } catch (_) {
+                                // If auto-download fails the user can still click the Download button.
+                            }
+
                         } else {
+                            // ── JSON response: pending / generating / failed ───────
                             const job = await pollResp.json();
                             if (job.estimated_scope) {
                                 setText("export-scope-emails",   formatNumber(job.estimated_scope.emails));
@@ -3686,20 +3711,21 @@ outline-offset: 2px;
                                 setText("export-scope-review",   formatNumber(job.estimated_scope.review));
                             }
                             if (hbody && job.status) {
-                                const isReady   = job.status === "ready";
-                                const isFailed  = job.status === "failed";
-                                const statusClass = isReady  ? "bg-emerald-50 text-emerald-700 border border-emerald-100"
-                                                : isFailed ? "bg-rose-50 text-rose-700 border border-rose-100"
-                                                            : "bg-indigo-50 text-indigo-700 border border-indigo-100";
-                                const cfg = getExportConfig();
+                                const isFailed = job.status === "failed";
+                                if (isFailed) {
+                                    // Stop polling on failure.
+                                    if (exportPollInterval) { clearInterval(exportPollInterval); exportPollInterval = null; }
+                                }
+                                const statusClass = isFailed ? "bg-rose-50 text-rose-700 border border-rose-100"
+                                                             : "bg-indigo-50 text-indigo-700 border border-indigo-100";
                                 hbody.innerHTML = `
                                     <tr>
                                         <td class="px-5 py-3 text-slate-500">${job.created_at ? new Date(job.created_at).toLocaleString() : "—"}</td>
-                                        <td class="px-5 py-3 font-medium text-slate-900">${escapeHtml((job.format || "").toUpperCase())}</td>
+                                        <td class="px-5 py-3 font-medium text-slate-900">${escapeHtml((job.format || cfg.format).toUpperCase())}</td>
                                         <td class="px-5 py-3">${formatNumber(job.estimated_scope?.emails ?? 0)}</td>
-                                        <td class="px-5 py-3 flex items-center gap-2">
+                                        <td class="px-5 py-3">
                                             <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${statusClass}">${capitalize(job.status)}</span>
-                                            ${isReady ? `<button type="button" onclick="downloadExport('${currentExportJobId}', '${cfg.format}')" class="text-indigo-600 hover:underline text-xs font-medium">Download</button>` : ''}
+                                            ${isFailed && job.error_message ? `<span class="ml-2 text-xs text-rose-600">${escapeHtml(job.error_message)}</span>` : ''}
                                         </td>
                                     </tr>`;
                             }
@@ -3757,11 +3783,15 @@ outline-offset: 2px;
                         setText("export-scope-review",   formatNumber(data.estimated_scope.review));
                     }
                     const success = document.getElementById("export-action-success");
-                    success.textContent = `Export queued as ${String(config.format).toUpperCase()}. Polling for completion…`;
+                    success.textContent = `Export queued as ${String(config.format).toUpperCase()}. Generating…`;
                     showElement(success);
                     status.textContent = "Export job submitted.";
                     showAppMessage(status.textContent);
-                    renderDataExport(); // show job in history
+                    renderDataExport(); // initial status render
+
+                    // Poll every 3 s until the worker marks the job ready or failed.
+                    if (exportPollInterval) clearInterval(exportPollInterval);
+                    exportPollInterval = setInterval(renderDataExport, 3000);
                 } else {
                     const err = await resp.json().catch(() => ({}));
                     showElement(document.getElementById("export-action-default"));
@@ -3778,6 +3808,8 @@ outline-offset: 2px;
         }
 
         function resetExportTest() {
+            // Stop any in-flight poll before resetting state.
+            if (exportPollInterval) { clearInterval(exportPollInterval); exportPollInterval = null; }
             document.getElementById("export-form")?.reset();
             hideElement(document.getElementById("export-action-loading"));
             hideElement(document.getElementById("export-action-success"));

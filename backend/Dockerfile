@@ -54,6 +54,13 @@ COPY alembic.ini .
 # Non-root user for security
 RUN addgroup --system phishguard && adduser --system --ingroup phishguard phishguard
 RUN chown -R phishguard:phishguard /app
+
+# Pre-create the exports mount-point with correct ownership.
+# Docker initialises a named volume from the image directory on first mount,
+# so setting ownership here prevents the default root:root 0755 permissions
+# from blocking the Celery worker from creating org-level subdirectories.
+RUN mkdir -p /mnt/exports && chown phishguard:phishguard /mnt/exports
+
 USER phishguard
 
 EXPOSE 8000
