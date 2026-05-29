@@ -1457,7 +1457,6 @@ outline-offset: 2px;
                                                     <th scope="col" class="px-5 py-3">Created</th>
                                                     <th scope="col" class="px-5 py-3">Format</th>
                                                     <th scope="col" class="px-5 py-3">Records</th>
-                                                    <th scope="col" class="px-5 py-3">Status</th>
                                                     <th scope="col" class="px-5 py-3">Action</th>
                                                 </tr>
                                             </thead>
@@ -3877,18 +3876,44 @@ outline-offset: 2px;
         // DATA EXPORT
         // =====================================================
 
-        // Returns a small coloured badge for the export format column.
+        // Returns a compact pill badge for the export format column.
         function exportFormatBadge(fmt) {
             const f = (fmt || 'csv').toLowerCase();
             const styles = {
-                csv:   'background:#f1f5f9;color:#475569;border:1px solid #e2e8f0',
-                json:  'background:#dbeafe;color:#1d4ed8;border:1px solid #bfdbfe',
-                jsonl: 'background:#f3e8ff;color:#7c3aed;border:1px solid #e9d5ff',
-                eml:   'background:#d1fae5;color:#065f46;border:1px solid #a7f3d0',
+                csv:   { bg: '#f3f4f6', color: '#374151', border: '#e5e7eb', label: 'CSV'   },
+                json:  { bg: '#eff6ff', color: '#1d4ed8', border: '#bfdbfe', label: 'JSON'  },
+                jsonl: { bg: '#f5f3ff', color: '#6d28d9', border: '#ddd6fe', label: 'JSONL' },
+                eml:   { bg: '#f0fdf4', color: '#15803d', border: '#86efac', label: '📧 EML' },
             };
-            const style = styles[f] || styles.csv;
-            const label = f === 'eml' ? '📧 EML' : f.toUpperCase();
-            return `<span style="${style};border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;display:inline-block">${label}</span>`;
+            const s = styles[f] || styles.csv;
+            return `<span style="display:inline-block;padding:3px 10px;background:${s.bg};color:${s.color};border:1px solid ${s.border};border-radius:20px;font-size:11px;font-weight:600;letter-spacing:0.3px">${s.label}</span>`;
+        }
+
+        // Returns the ACTION column cell content based on job status.
+        function renderExportActionButton(jobId, fmt, status, errorMsg) {
+            if (status === 'ready') {
+                return `<button onclick="downloadExport('${jobId}','${fmt}')" title="Download ${(fmt||'').toUpperCase()} export"
+                    style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#f0fdf4;color:#16a34a;border:1px solid #86efac;border-radius:20px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:all 0.15s ease"
+                    onmouseover="this.style.background='#16a34a';this.style.color='white';this.style.borderColor='#16a34a'"
+                    onmouseout="this.style.background='#f0fdf4';this.style.color='#16a34a';this.style.borderColor='#86efac'">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7,10 12,15 17,10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                    </svg>Download</button>`;
+            }
+            if (status === 'generating' || status === 'pending') {
+                return `<span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#f9fafb;color:#6b7280;border:1px solid #e5e7eb;border-radius:20px;font-size:12px;font-weight:500">
+                    <svg width="12" height="12" viewBox="0 0 24 24" style="animation:spin 1s linear infinite" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <path d="M21 12a9 9 0 11-6.219-8.56"/>
+                    </svg>Processing…</span>`;
+            }
+            if (status === 'failed') {
+                const tip = errorMsg ? ` title="${escapeHtml(errorMsg)}"` : '';
+                return `<span${tip} style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#fef2f2;color:#dc2626;border:1px solid #fca5a5;border-radius:20px;font-size:12px;font-weight:500;cursor:${errorMsg ? 'help' : 'default'}">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+                    </svg>Failed${errorMsg ? ' ⓘ' : ''}</span>`;
+            }
+            return '';
         }
 
         // Download an export file via apiFetch so the Authorization header is sent.
@@ -3922,7 +3947,7 @@ outline-offset: 2px;
             // away clears that flag, so returning to Settings never auto-downloads.
             if (!currentExportJobId) {
                 const hbody = document.getElementById("export-history-body");
-                if (hbody) hbody.innerHTML = `<tr><td colspan="5" class="px-5 py-10 text-center text-slate-500 text-sm">No export history is available.</td></tr>`;
+                if (hbody) hbody.innerHTML = `<tr><td colspan="4" class="px-5 py-10 text-center text-slate-500 text-sm">No export history is available.</td></tr>`;
                 return;
             }
 
@@ -3938,22 +3963,14 @@ outline-offset: 2px;
                     // ── Binary FileResponse: job is 'ready' ───────────────────────
                     if (exportPollInterval) { clearInterval(exportPollInterval); exportPollInterval = null; }
 
-                    // Show Ready badge + Download button (always — no auto-download here).
+                    // Show Ready state with Download pill (always — no auto-download here).
                     if (hbody) {
                         hbody.innerHTML = `
                             <tr>
-                                <td class="px-5 py-3 text-slate-500">${new Date().toLocaleString()}</td>
-                                <td class="px-5 py-3">${exportFormatBadge(fmt)}</td>
-                                <td class="px-5 py-3">—</td>
-                                <td class="px-5 py-3">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100">Ready</span>
-                                </td>
-                                <td class="px-5 py-3">
-                                    <button type="button" onclick="downloadExport('${currentExportJobId}', '${fmt}')"
-                                        style="background:#16a34a;color:white;border:none;border-radius:6px;padding:5px 12px;font-size:12px;font-weight:500;cursor:pointer">
-                                        &#8595; Download
-                                    </button>
-                                </td>
+                                <td style="padding:12px 20px;font-size:13px;color:#6b7280">${new Date().toLocaleString()}</td>
+                                <td style="padding:12px 20px">${exportFormatBadge(fmt)}</td>
+                                <td style="padding:12px 20px;font-size:13px;color:#374151;font-weight:500">—</td>
+                                <td style="padding:12px 20px">${renderExportActionButton(currentExportJobId, fmt, 'ready')}</td>
                             </tr>`;
                     }
 
@@ -3995,22 +4012,15 @@ outline-offset: 2px;
                             if (exportPollInterval) { clearInterval(exportPollInterval); exportPollInterval = null; }
                             _activeExportSession = false;
                         }
-                        const statusClass = isFailed
-                            ? "bg-rose-50 text-rose-700 border border-rose-100"
-                            : "bg-indigo-50 text-indigo-700 border border-indigo-100";
-                        const actionCell = isFailed
-                            ? `<span style="color:#ef4444;font-size:12px">Failed</span>`
-                            : `<span style="color:#6b7280;font-size:12px">Processing…</span>`;
+                        const rowFmt    = job.format || fmt;
+                        const scopeNum  = job.estimated_scope?.emails;
+                        const recordStr = scopeNum != null ? formatNumber(scopeNum) : '—';
                         hbody.innerHTML = `
                             <tr>
-                                <td class="px-5 py-3 text-slate-500">${job.created_at ? new Date(job.created_at).toLocaleString() : "—"}</td>
-                                <td class="px-5 py-3">${exportFormatBadge(job.format || fmt)}</td>
-                                <td class="px-5 py-3">${formatNumber(job.estimated_scope?.emails ?? 0)}</td>
-                                <td class="px-5 py-3">
-                                    <span class="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium ${statusClass}">${capitalize(job.status)}</span>
-                                    ${isFailed && job.error_message ? `<p class="mt-1 text-xs text-rose-600">${escapeHtml(job.error_message)}</p>` : ''}
-                                </td>
-                                <td class="px-5 py-3">${actionCell}</td>
+                                <td style="padding:12px 20px;font-size:13px;color:#6b7280">${job.created_at ? new Date(job.created_at).toLocaleString() : "—"}</td>
+                                <td style="padding:12px 20px">${exportFormatBadge(rowFmt)}</td>
+                                <td style="padding:12px 20px;font-size:13px;color:#374151;font-weight:500">${recordStr}</td>
+                                <td style="padding:12px 20px">${renderExportActionButton(currentExportJobId, rowFmt, job.status, job.error_message || '')}</td>
                             </tr>`;
                     }
                 }
