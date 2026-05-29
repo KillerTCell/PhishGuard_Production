@@ -4,7 +4,7 @@ GET   /users/stats    -- summary counts (UI Figure 17 cards)
 GET   /users          -- all org members ordered by created_at DESC
 GET   /users/{id}     -- detail + last 10 audit actions
 PATCH /users/{id}     -- update role / is_active (cannot self-deactivate)
-DELETE /users/{id}    -- soft-deactivate (UPDATE is_active=False)
+DELETE /users/{id}    -- hard delete with FK cleanup; audit trail preserved
 """
 from __future__ import annotations
 
@@ -14,11 +14,13 @@ from typing import Any, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import CurrentUser, get_db, require_admin
 from app.models.audit_log import AuditLog
+from app.models.export_job import ExportJob
+from app.models.invite_token import InviteToken
 from app.models.user import User
 from app.schemas.users import (
     RecentAuditAction,
@@ -242,7 +244,7 @@ async def update_user(
 
 
 # ---------------------------------------------------------------------------
-# DELETE /users/{id}  (Admin only — soft-deactivate)
+# DELETE /users/{id}  (Admin only — hard delete with FK cleanup)
 # ---------------------------------------------------------------------------
 
 
@@ -250,15 +252,39 @@ async def update_user(
     "/users/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
     response_model=None,
-    summary="Soft-deactivate a user (admin only)",
+    summary="Permanently delete a user (admin only)",
 )
-async def deactivate_user(
+async def delete_user(
     user_id: uuid.UUID,
     request: Request,
     current_user: CurrentUser = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Soft-deactivate (set is_active=False).  Does not hard-delete the record."""
+    """Hard-delete a user and clean up all FK references (one transaction).
+
+    FK handling order (must precede the user row deletion):
+
+    NO ACTION FKs (not auto-handled — explicit cleanup required):
+      invite_tokens.invited_by_user_id  NOT NULL → DELETE matching rows
+      export_jobs.requested_by_user_id  NOT NULL → DELETE matching rows
+
+    Auto-handled by PostgreSQL:
+      feedback.user_id              SET NULL → user_id becomes NULL
+      audit_log.user_id             SET NULL → historical entries preserved,
+                                               user_id becomes NULL
+      password_reset_tokens.user_id CASCADE  → rows deleted automatically
+
+    The user_deleted audit entry is written under the acting admin
+    (current_user.id) BEFORE db.delete(user) so it survives the commit.
+    The get_db() dependency commits the transaction on teardown.
+    """
+    # Guard: cannot delete your own account (also enforced on the frontend)
+    if user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot delete your own account",
+        )
+
     user = (
         await db.execute(
             select(User).where(
@@ -270,8 +296,31 @@ async def deactivate_user(
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
-    user.is_active = False
-    await _write_audit(
-        db, "user_deactivated", current_user, request,
-        {"target_user_id": str(user_id)},
+    # Capture details before the ORM object is expunged from the session
+    deleted_email = user.email
+    deleted_role  = user.role
+
+    # -- Explicit FK cleanup (NO ACTION constraints) -------------------------
+    await db.execute(
+        delete(InviteToken).where(InviteToken.invited_by_user_id == user_id)
     )
+    await db.execute(
+        delete(ExportJob).where(ExportJob.requested_by_user_id == user_id)
+    )
+
+    # -- Audit log (written under the admin, not the deleted user) -----------
+    await _write_audit(
+        db,
+        "user_deleted",
+        current_user,
+        request,
+        {
+            "target_user_id": str(user_id),
+            "deleted_email":  deleted_email,
+            "deleted_role":   deleted_role,
+        },
+    )
+
+    # -- Delete the user row (SET NULL / CASCADE FKs handled by PostgreSQL) --
+    await db.delete(user)
+    # get_db() teardown commits the transaction atomically.

@@ -4075,15 +4075,22 @@ outline-offset: 2px;
             confirmRow.className = 'user-confirm-row';
             confirmRow.innerHTML = `
                 <td colspan="5" style="padding:6px 20px">
-                    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:10px 16px;display:flex;align-items:center;justify-content:space-between">
-                        <span style="font-size:13px;color:#374151">
-                            Delete <strong>${escapeHtml(user.name)}</strong>? This cannot be undone.
-                        </span>
+                    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px 16px">
+                        <div style="margin-bottom:8px">
+                            <span style="font-size:13px;color:#374151;font-weight:600">
+                                Permanently delete ${escapeHtml(user.name)} (${escapeHtml(user.email)})?
+                            </span>
+                            <br>
+                            <span style="font-size:12px;color:#6b7280">
+                                This removes their account and cannot be undone.
+                                Their audit history will be preserved.
+                            </span>
+                        </div>
                         <div style="display:flex;gap:8px">
                             <button type="button" onclick="closeOpenConfirm()"
                                 style="border:1px solid #e5e7eb;background:#fff;color:#374151;padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;font-weight:500">Cancel</button>
                             <button type="button" onclick="confirmDeleteUser('${userId}')"
-                                style="background:#dc2626;color:#fff;padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;font-weight:500">Delete</button>
+                                style="background:#dc2626;color:#fff;padding:5px 14px;border-radius:6px;font-size:12px;cursor:pointer;border:none;font-weight:500">Delete Permanently</button>
                         </div>
                     </div>
                 </td>`;
@@ -4094,10 +4101,14 @@ outline-offset: 2px;
 
         async function confirmDeleteUser(userId) {
             closeOpenConfirm();
+            const user = systemUsersState.find(u => u.id === userId);
+            const userName = user?.name || 'User';
             try {
                 const resp = await apiFetch(`/users/${userId}`, { method: 'DELETE' });
                 if (resp.status !== 204 && !resp.ok) {
-                    setUserManagementStatus('Could not delete user.', 'error');
+                    const errData = await resp.json().catch(() => ({}));
+                    const msg = errData?.error?.message || errData?.detail || 'Could not delete user.';
+                    setUserManagementStatus(msg, 'error');
                     return;
                 }
                 // Fade-out the row, then remove it
@@ -4109,7 +4120,17 @@ outline-offset: 2px;
                     setTimeout(() => row.remove(), 370);
                 }
                 systemUsersState = systemUsersState.filter(u => u.id !== userId);
-                setUserManagementStatus('User deleted.', 'success');
+                // Refresh the stats cards so total count decrements
+                apiFetch('/users/stats').then(async r => {
+                    if (r.ok) {
+                        const s = await r.json();
+                        setText('user-stat-total',    s.total);
+                        setText('user-stat-admins',   s.admins);
+                        setText('user-stat-analysts', s.analysts);
+                        setText('user-stat-active',   s.active);
+                    }
+                }).catch(() => {});
+                showAppMessage(`${userName} has been permanently deleted.`, 'success');
             } catch (_) {
                 setUserManagementStatus('Could not delete user. Check your connection.', 'error');
             }
