@@ -96,3 +96,6 @@ temp/
 # Test artifacts
 playwright-report/
 test-results/
+
+# Abandoned React login scaffold (replaced by PhishGuard.html)
+react-vite-login-scaffold/package-lock.json
