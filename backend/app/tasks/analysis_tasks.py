@@ -406,16 +406,31 @@ def parse_and_sanitise(self: Any, email_id: str) -> str:
             )
 
         else:
-            # upload or imap: raw bytes saved to <tmpdir>/{email_id}.eml
-            # Use tempfile.gettempdir() — avoids hardcoded /tmp (CWE-377).
-            tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
-            try:
-                with open(tmp_path, "rb") as fh:
-                    raw_bytes = fh.read()
-            except OSError as os_exc:
-                raise EmailParseError(
-                    f"Cannot read temp file '{tmp_path}': {os_exc}"
-                ) from os_exc
+            # upload: read raw bytes from the DB column (set by the upload
+            # endpoint); avoids relying on /tmp/ which is not shared between
+            # the API container and the worker container.
+            #
+            # imap: raw bytes are written to /tmp/ by imap_poll_all_orgs,
+            # which runs inside the worker — so /tmp/ IS accessible there.
+            if source == "upload" and email.raw_bytes:
+                raw_bytes = email.raw_bytes
+                # Clear stored bytes immediately after reading to reclaim space.
+                session.execute(
+                    update(Email.__table__)
+                    .where(Email.__table__.c.id == email_uuid)
+                    .values(raw_bytes=None)
+                )
+            else:
+                # imap (or legacy upload before raw_bytes column was added):
+                # fall back to reading from the local /tmp/ file.
+                tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
+                try:
+                    with open(tmp_path, "rb") as fh:
+                        raw_bytes = fh.read()
+                except OSError as os_exc:
+                    raise EmailParseError(
+                        f"Cannot read temp file '{tmp_path}': {os_exc}"
+                    ) from os_exc
 
             parsed = parse_eml(raw_bytes)
 

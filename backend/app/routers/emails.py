@@ -177,17 +177,23 @@ async def upload_emails(
             continue
 
         # ── Persist and queue ───────────────────────────────────────────────
+        # Store raw bytes in the DB instead of /tmp/ so the Celery worker
+        # (a separate container) can access them.  The worker's /tmp/ is a
+        # completely different filesystem from the API container's /tmp/.
         email_id = uuid.uuid4()
-        tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
-        with open(tmp_path, "xb") as f_out:
-            f_out.write(raw)
-
         email_record = Email(
             id=email_id,
             org_id=current_user.org_id,
             ingestion_source="upload",
             status="pending",
             received_at=parsed["received_at"],
+            # Pre-populate header fields from the already-parsed result so
+            # the email row is useful immediately, before analysis completes.
+            sender=parsed.get("sender"),
+            subject=parsed.get("subject"),
+            recipient_address=parsed.get("recipient_address"),
+            # Raw bytes consumed by parse_and_sanitise and then cleared.
+            raw_bytes=raw,
         )
         db.add(email_record)
         await db.flush()

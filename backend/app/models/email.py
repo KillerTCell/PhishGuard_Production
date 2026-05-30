@@ -11,6 +11,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    LargeBinary,
     String,
     Text,
     func,
@@ -120,6 +121,14 @@ class Email(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() return
     ingested_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+    # ── Raw upload bytes (upload source only) ───────────────────────────
+    # Stores the raw .eml bytes for uploaded files so the parse_and_sanitise
+    # Celery task can access them without relying on a shared /tmp/ directory.
+    # The worker container has a different /tmp/ from the API container, so
+    # files written to /tmp/ by the API are not accessible to the worker.
+    # Cleared after parse_and_sanitise completes to reclaim storage.
+    raw_bytes: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     # ── Lifecycle ───────────────────────────────────────────────────────
     status: Mapped[str] = mapped_column(
