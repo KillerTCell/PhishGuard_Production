@@ -30,10 +30,34 @@ from app.schemas.common import (
 
 
 class EmailUploadResponse(BaseModel):
-    """202 returned immediately after .eml ingestion is queued."""
+    """202 returned immediately after a single .eml ingestion is queued (legacy)."""
 
     email_id: uuid.UUID
     status: str = "pending"
+
+
+class BulkUploadItem(BaseModel):
+    """One successfully queued email within a bulk upload response."""
+
+    email_id: uuid.UUID
+    filename: str
+    status: str = "pending"
+
+
+class BulkUploadError(BaseModel):
+    """One file that was skipped during a bulk upload (validation failure)."""
+
+    filename: str
+    error: str
+
+
+class BulkUploadResponse(BaseModel):
+    """202 returned after POST /emails/upload with multiple files."""
+
+    queued: list[BulkUploadItem] = []
+    errors: list[BulkUploadError] = []
+    total_queued: int = 0
+    total_errors: int = 0
 
 
 # ---------------------------------------------------------------------------

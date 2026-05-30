@@ -1136,108 +1136,64 @@ outline-offset: 2px;
                             </div>
                         </div>
 
-                        <!-- Upload .eml tab panel -->
-                        <!-- TODO: Backend — submit file to POST /api/analysis/upload as multipart/form-data { file } -->
+                        <!-- Upload .eml tab panel — bulk file upload (up to 20 .eml files) -->
                         <div id="analyse-tab-upload" role="tabpanel" aria-labelledby="analyse-tab-upload-btn" class="hidden">
+                            <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" aria-labelledby="upload-zone-heading">
 
-                            <!-- lg: two-column layout (file zone + results); below lg: stacks vertically -->
-                            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <!-- Card header -->
+                                <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-4">
+                                    <div class="min-w-0">
+                                        <h2 id="upload-zone-heading" class="text-sm font-semibold tracking-tight text-slate-900">Bulk .eml Upload</h2>
+                                        <p class="text-xs text-slate-500 mt-0.5">Upload up to 20 .eml files at once — each is analysed in parallel.</p>
+                                    </div>
+                                    <button type="button" onclick="resetUploadMock()" class="bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-50 shadow-sm transition-colors shrink-0">Reset</button>
+                                </div>
 
-                                <!-- File intake card (takes 2/3 of grid at lg+) -->
-                                <section class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden" aria-labelledby="upload-zone-heading">
+                                <div class="p-4 space-y-4">
+                                    <!-- Hidden file input — multiple .eml files only -->
+                                    <input id="upload-file-input" type="file" class="sr-only" accept=".eml,message/rfc822" multiple onchange="handleFilesSelected(this.files); this.value='';">
 
-                                    <!-- Card header: title/description left, action buttons right -->
-                                    <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-4">
-                                        <div class="min-w-0">
-                                            <h2 id="upload-zone-heading" class="text-sm font-semibold tracking-tight text-slate-900">File intake</h2>
-                                            <p class="text-xs text-slate-500 mt-0.5">Drag and drop an email file, or browse from your device.</p>
+                                    <!-- Drop zone -->
+                                    <div id="upload-dropzone" role="button" tabindex="0" aria-describedby="upload-error"
+                                        onclick="document.getElementById('upload-file-input').click()"
+                                        onkeydown="handleUploadZoneKeydown(event)"
+                                        ondragover="handleUploadDragOver(event)"
+                                        ondragleave="handleUploadDragLeave(event)"
+                                        ondrop="handleUploadDrop(event)"
+                                        class="border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/70 p-6 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
+                                        <div class="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center mx-auto mb-3 text-indigo-600">
+                                            <iconify-icon icon="solar:file-send-linear" class="text-lg" stroke-width="1.5" aria-hidden="true"></iconify-icon>
                                         </div>
-                                        <!-- Action buttons live in the header so they stay visible without scrolling -->
-                                        <div class="flex items-center gap-2 shrink-0">
-                                            <button type="button" onclick="resetUploadMock()" class="bg-white text-slate-700 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-medium hover:bg-slate-50 shadow-sm transition-colors">Reset</button>
-                                            <!-- Enabled by mockSelectFile(); disabled again by mockRemoveFile() -->
-                                            <button id="btn-analyse-header" type="button" onclick="startAnalysisMock()" disabled class="bg-slate-900 text-white px-3 py-1.5 rounded-xl text-xs font-medium flex items-center hover:bg-slate-800 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed">
-                                                <iconify-icon icon="solar:play-circle-linear" class="mr-1.5 text-base" stroke-width="1.5"></iconify-icon>
-                                                Analyse File
+                                        <h3 class="text-sm font-semibold text-slate-900 mb-1">Drop .eml files here</h3>
+                                        <p class="text-xs text-slate-500 mb-3">Upload up to 20 files at once · Max 5 MB each</p>
+                                        <button type="button" onclick="event.stopPropagation(); document.getElementById('upload-file-input').click()"
+                                            class="bg-white border border-slate-200 text-slate-700 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-slate-50 shadow-sm transition-colors">
+                                            Browse Files
+                                        </button>
+                                    </div>
+
+                                    <!-- File queue list — populated by renderFileQueue() -->
+                                    <div id="eml-file-queue" class="flex flex-col gap-2 max-h-80 overflow-y-auto"></div>
+
+                                    <!-- Queue summary bar — shown once files are selected -->
+                                    <div id="eml-queue-summary" style="display:none" class="items-center justify-between flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                        <span id="eml-queue-count" class="text-sm text-slate-700 font-medium">0 files selected</span>
+                                        <div class="flex gap-2">
+                                            <button type="button" onclick="clearFileQueue()"
+                                                class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-600 hover:bg-slate-50 transition-colors">
+                                                Clear all
+                                            </button>
+                                            <button type="button" id="upload-all-btn" onclick="uploadAllFiles()"
+                                                class="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                                                Analyse All
                                             </button>
                                         </div>
                                     </div>
 
-                                    <div class="p-4 space-y-4">
-                                        <!-- Hidden native file input — triggered by dropzone click or Browse button -->
-                                        <input id="upload-file-input" type="file" class="sr-only" accept=".eml,.msg,.txt,.html" onchange="mockSelectFile(this.files[0])">
-
-                                        <!-- Drop zone — compact size keeps it visible without scrolling -->
-                                        <div id="upload-dropzone" role="button" tabindex="0" aria-describedby="upload-help upload-error" onclick="document.getElementById('upload-file-input').click()" onkeydown="handleUploadZoneKeydown(event)" ondragover="handleUploadDragOver(event)" ondragleave="handleUploadDragLeave(event)" ondrop="handleUploadDrop(event)" class="border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50/70 p-5 text-center cursor-pointer hover:border-indigo-300 hover:bg-indigo-50/30 transition-colors">
-                                            <div class="w-10 h-10 rounded-xl bg-white border border-slate-200 shadow-sm flex items-center justify-center mx-auto mb-3 text-indigo-600">
-                                                <iconify-icon icon="solar:file-send-linear" class="text-lg" stroke-width="1.5" aria-hidden="true"></iconify-icon>
-                                            </div>
-                                            <h3 class="text-sm font-semibold text-slate-900 mb-1">Drop email file here</h3>
-                                            <p id="upload-help" class="text-xs text-slate-500">Supported: .eml, .msg, .txt, or exported HTML source.</p>
-                                            <button type="button" onclick="event.stopPropagation(); document.getElementById('upload-file-input').click()" class="mt-3 bg-white border border-slate-200 text-slate-700 px-4 py-1.5 rounded-xl text-sm font-medium hover:bg-slate-50 shadow-sm transition-colors">
-                                                Browse Files
-                                            </button>
-                                        </div>
-
-                                        <!-- Selected file indicator — shown after file is chosen, hidden when removed -->
-                                        <div id="dropzone-selected" class="hidden bg-indigo-50/60 border border-indigo-100 rounded-2xl p-4 flex items-center justify-between gap-4">
-                                            <div class="flex items-center min-w-0">
-                                                <div class="w-10 h-10 rounded-xl bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0">
-                                                    <iconify-icon icon="solar:file-text-linear" class="text-xl" stroke-width="1.5" aria-hidden="true"></iconify-icon>
-                                                </div>
-                                                <div class="ml-3 min-w-0">
-                                                    <p id="upload-selected-name" class="text-sm font-semibold text-slate-900 truncate">Selected file</p>
-                                                    <p id="upload-selected-meta" class="text-xs text-slate-500 mt-0.5">Ready for analysis</p>
-                                                </div>
-                                            </div>
-                                            <button type="button" onclick="mockRemoveFile()" aria-label="Remove selected file" class="p-2 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-white transition-colors">
-                                                <iconify-icon icon="solar:trash-bin-trash-linear" class="text-lg" stroke-width="1.5"></iconify-icon>
-                                            </button>
-                                        </div>
-
-                                        <!-- Inline status/error message for the upload zone -->
-                                        <p id="upload-error" class="hidden text-xs text-rose-600 font-medium" aria-live="polite"></p>
-
-                                        <!-- Progress card — shown during startAnalysisMock(); hidden before and after -->
-                                        <!-- TODO: Backend — drive progress from POST /api/analysis/upload streaming response -->
-                                        <div id="progress-card" class="hidden bg-white border border-slate-200 rounded-2xl p-4 shadow-sm" aria-live="polite">
-                                            <div class="flex items-center justify-between mb-3">
-                                                <h3 class="text-sm font-semibold text-slate-900">Analysis progress</h3>
-                                                <span id="progress-percent" class="text-xs font-semibold text-indigo-600">0%</span>
-                                            </div>
-                                            <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
-                                                <div id="progress-bar" class="h-full bg-indigo-600 rounded-full transition-all duration-500" style="width: 0%"></div>
-                                            </div>
-                                            <p id="progress-text" class="text-xs text-slate-500 mb-3">Waiting for file selection.</p>
-                                            <div id="upload-step-list" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs"></div>
-                                        </div>
-                                    </div>
-                                </section>
-
-                                <!-- Results column — hidden until analysis completes (showElement called by startAnalysisMock) -->
-                                <!-- TODO: Backend — populate from POST /api/analysis/upload response: { riskScore, classification, evidence, metadata } -->
-                                <aside id="results-column" class="hidden lg:col-span-1 space-y-4" aria-live="polite">
-                                    <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                                        <div class="bg-slate-900 text-white p-5 text-center">
-                                            <p class="text-xs text-slate-300 uppercase tracking-widest font-semibold mb-2">Risk Result</p>
-                                            <div class="flex items-baseline justify-center font-bold">
-                                                <span id="upload-risk-score" class="text-5xl tracking-tight">0</span>
-                                                <span class="text-xl text-slate-400 ml-1">/100</span>
-                                            </div>
-                                            <p id="upload-risk-label" class="text-sm text-slate-200 mt-2">Awaiting analysis</p>
-                                        </div>
-                                        <div class="p-4">
-                                            <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Evidence Summary</h3>
-                                            <ul id="upload-evidence-list" class="space-y-2.5 text-sm text-slate-600"></ul>
-                                        </div>
-                                    </div>
-
-                                    <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                                        <h3 class="text-sm font-semibold text-slate-900 mb-3">Metadata Snapshot</h3>
-                                        <dl id="upload-metadata-list" class="space-y-3 text-sm"></dl>
-                                    </div>
-                                </aside>
-                            </div>
+                                    <!-- Inline status / error message -->
+                                    <p id="upload-error" class="hidden text-xs text-rose-600 font-medium" aria-live="polite"></p>
+                                </div>
+                            </section>
                         </div>
                     </div>
 
@@ -2294,6 +2250,7 @@ outline-offset: 2px;
         let settingsState = { suspiciousThreshold: 30, phishingThreshold: 60, autoQuarantine: true, subjectWarning: true };
         let selectedUploadFile = null;
         let uploadTimerIds = [];
+        let _emlFileQueue = [];   // Array of File objects for bulk upload
         let forwardingTimerIds = [];
         let systemUsersState = [];
         let currentDigestItems = [];
@@ -3514,7 +3471,8 @@ outline-offset: 2px;
 
         // =====================================================
         // UPLOAD FILE ZONE (Upload .eml tab)
-        // POST /emails/upload (multipart) → poll GET /analysis/{id}/status
+        // POST /emails/upload (multipart, up to 20 files)
+        // Poll GET /analysis/{id}/status for each queued email
         // =====================================================
 
         function formatFileSize(bytes) {
@@ -3524,12 +3482,7 @@ outline-offset: 2px;
             return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
         }
 
-        function renderUploadFileZone() {
-            renderUploadSteps(-1);
-            if (selectedUploadFile) {
-                updateSelectedUploadFile();
-            }
-        }
+        function renderUploadFileZone() { renderFileQueue(); }
 
         function showUploadMessage(message, tone = "error") {
             const error = document.getElementById("upload-error");
@@ -3564,180 +3517,217 @@ outline-offset: 2px;
         function handleUploadDrop(event) {
             event.preventDefault();
             handleUploadDragLeave(event);
-            const file = event.dataTransfer?.files?.[0];
-            if (file) mockSelectFile(file);
-        }
-
-        function mockSelectFile(file) {
-            if (!file) return;
-            // Preserve the real File object so the upload POST can send it.
-            selectedUploadFile = {
-                name:        file.name,
-                size:        file.size,
-                type:        file.type || "message/rfc822",
-                _fileObject: file,   // real File for FormData
-            };
-            updateSelectedUploadFile();
-            hideUploadMessage();
-            hideElement(document.getElementById("results-column"));
-            showUploadMessage("File selected. Analysis is ready to start.", "success");
-        }
-
-        function updateSelectedUploadFile() {
-            const selected = document.getElementById("dropzone-selected");
-            const analyseButton = document.getElementById("btn-analyse-header");
-            setText("upload-selected-name", selectedUploadFile.name);
-            setText("upload-selected-meta", `${formatFileSize(selectedUploadFile.size)} · ${selectedUploadFile.type || "message/rfc822"}`);
-            selected?.classList.remove("hidden");
-            analyseButton?.removeAttribute("disabled");
-        }
-
-        function mockRemoveFile() {
-            selectedUploadFile = null;
-            clearUploadTimers();
-            hideElement(document.getElementById("dropzone-selected"));
-            hideElement(document.getElementById("progress-card"));
-            hideElement(document.getElementById("results-column"));
-            hideUploadMessage();
-            const input = document.getElementById("upload-file-input");
-            if (input) input.value = "";
-            document.getElementById("btn-analyse-header")?.setAttribute("disabled", "true");
+            const files = event.dataTransfer?.files;
+            if (files && files.length > 0) handleFilesSelected(files);
         }
 
         function clearUploadTimers() {
-            uploadTimerIds.forEach(timerId => clearTimeout(timerId));
+            uploadTimerIds.forEach(id => clearTimeout(id));
             uploadTimerIds = [];
         }
 
-        const UPLOAD_STEPS = [
-            { label: "File received",     detail: "Email source received and queued for analysis." },
-            { label: "Headers inspected", detail: "Authentication and routing metadata extracted."  },
-            { label: "Links reviewed",    detail: "URL and domain mismatch evidence compared."      },
-            { label: "Risk summary",      detail: "Risk score and evidence summary prepared."       },
-        ];
+        // ── File queue management ────────────────────────────────────────────
 
-        function renderUploadSteps(activeIndex) {
-            const list = document.getElementById("upload-step-list");
-            if (!list) return;
-            list.innerHTML = UPLOAD_STEPS.map((step, index) => {
-                const complete = index <= activeIndex;
-                return `
-                    <div class="${complete ? "bg-indigo-50 border-indigo-100 text-indigo-700" : "bg-slate-50 border-slate-100 text-slate-500"} border rounded-xl p-3">
-                        <div class="font-semibold">${escapeHtml(step.label)}</div>
-                        <div class="mt-1 leading-relaxed">${escapeHtml(step.detail)}</div>
-                    </div>
-                `;
-            }).join("");
+        function handleFilesSelected(files) {
+            const arr       = Array.from(files);
+            const remaining = 20 - _emlFileQueue.length;
+            if (arr.length > remaining) {
+                showUploadMessage(`Maximum 20 files. Only the first ${remaining} were added.`, "error");
+            } else {
+                hideUploadMessage();
+            }
+            _emlFileQueue = [..._emlFileQueue, ...arr.slice(0, remaining)];
+            renderFileQueue();
         }
 
-        // POST /emails/upload (multipart), then poll GET /analysis/{id}/status.
-        async function startAnalysisMock() {
-            if (!selectedUploadFile?._fileObject) {
-                showUploadMessage("Select a file before starting analysis.");
+        function renderFileQueueItem(file, index) {
+            const isWrongType = !file.name.toLowerCase().endsWith('.eml');
+            const isTooBig   = file.size > 5 * 1024 * 1024;
+            const hasError   = isWrongType || isTooBig;
+            const sizeStr    = formatFileSize(file.size);
+            const bg         = hasError ? '#fef2f2' : '#f9fafb';
+            const border     = hasError ? '#fca5a5' : '#e5e7eb';
+            const iconBg     = hasError ? '#fee2e2' : '#eff6ff';
+            const errText    = isWrongType ? 'Not a .eml file — will be skipped'
+                             : isTooBig   ? `${sizeStr} — exceeds 5 MB limit`
+                             :              sizeStr;
+            const errColor   = hasError ? '#dc2626' : '#6b7280';
+            return `<div id="file-item-${index}" style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:${bg};border:1px solid ${border};border-radius:10px">
+                <div style="width:36px;height:36px;background:${iconBg};border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:16px">${hasError ? '⚠️' : '📧'}</div>
+                <div style="flex:1;min-width:0">
+                    <p style="font-size:13px;font-weight:500;color:#111827;margin:0 0 2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escapeHtml(file.name)}</p>
+                    <p style="font-size:11px;margin:0;color:${errColor}">${escapeHtml(errText)}</p>
+                </div>
+                <div id="file-status-${index}" style="flex-shrink:0">
+                    ${hasError ? '<span style="font-size:11px;color:#dc2626;font-weight:500">Skipped</span>'
+                               : '<span style="font-size:11px;color:#6b7280">Queued</span>'}
+                </div>
+                <button onclick="removeFileFromQueue(${index})" title="Remove"
+                    style="width:24px;height:24px;background:transparent;border:none;cursor:pointer;color:#9ca3af;font-size:16px;display:flex;align-items:center;justify-content:center;border-radius:4px;flex-shrink:0">✕</button>
+            </div>`;
+        }
+
+        function renderFileQueue() {
+            const container = document.getElementById('eml-file-queue');
+            const summary   = document.getElementById('eml-queue-summary');
+            const countEl   = document.getElementById('eml-queue-count');
+            if (!container) return;
+
+            if (_emlFileQueue.length === 0) {
+                container.innerHTML = '';
+                if (summary) summary.style.display = 'none';
                 return;
             }
 
-            clearUploadTimers();
+            container.innerHTML = _emlFileQueue.map((f, i) => renderFileQueueItem(f, i)).join('');
+
+            const validCount = _emlFileQueue.filter(f =>
+                f.name.toLowerCase().endsWith('.eml') && f.size <= 5 * 1024 * 1024
+            ).length;
+            const skipCount = _emlFileQueue.length - validCount;
+
+            if (summary) summary.style.display = 'flex';
+            if (countEl) {
+                countEl.textContent = `${_emlFileQueue.length} file${_emlFileQueue.length !== 1 ? 's' : ''} selected` +
+                    (skipCount > 0 ? ` · ${skipCount} will be skipped` : '');
+            }
+        }
+
+        function removeFileFromQueue(index) {
+            _emlFileQueue.splice(index, 1);
+            renderFileQueue();
+        }
+
+        function clearFileQueue() {
+            _emlFileQueue = [];
+            renderFileQueue();
+            const input = document.getElementById('upload-file-input');
+            if (input) input.value = '';
             hideUploadMessage();
-            hideElement(document.getElementById("results-column"));
-            showElement(document.getElementById("progress-card"));
-            setText("progress-text", "Uploading file…");
-            setText("progress-percent", "10%");
-            document.getElementById("progress-bar").style.width = "10%";
-            renderUploadSteps(-1);
+        }
+
+        // ── Upload & parallel polling ────────────────────────────────────────
+
+        async function uploadAllFiles() {
+            const validFiles = _emlFileQueue.filter(f =>
+                f.name.toLowerCase().endsWith('.eml') && f.size <= 5 * 1024 * 1024
+            );
+            if (validFiles.length === 0) {
+                showUploadMessage('No valid .eml files to upload. Only .eml files under 5 MB are accepted.');
+                return;
+            }
+
+            const btn = document.getElementById('upload-all-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+
+            // Mark all non-error items as uploading
+            _emlFileQueue.forEach((_, i) => {
+                const item     = document.getElementById(`file-item-${i}`);
+                const statusEl = document.getElementById(`file-status-${i}`);
+                if (statusEl && item && !item.style.background.includes('fef2f2')) {
+                    statusEl.innerHTML = '<span style="font-size:11px;color:#6b7280">Uploading…</span>';
+                }
+            });
 
             try {
-                const form = new FormData();
-                form.append("file", selectedUploadFile._fileObject);
+                const formData = new FormData();
+                _emlFileQueue.forEach(f => formData.append('files', f));
 
-                const uploadResp = await fetch(`${API_BASE}/emails/upload`, {
+                const res = await fetch(`${API_BASE}/emails/upload`, {
                     method: 'POST',
                     credentials: 'include',
                     headers: window.authToken ? { Authorization: `Bearer ${window.authToken}` } : {},
-                    body: form,
+                    body: formData,
                 });
-                if (!uploadResp.ok) throw new Error('Upload failed — check the file format.');
-                const { email_id } = await uploadResp.json();
 
-                setText("progress-text", "Analysing email…");
-                setText("progress-percent", "30%");
-                document.getElementById("progress-bar").style.width = "30%";
-                renderUploadSteps(0);
+                if (!res.ok) {
+                    const err = await res.json().catch(() => ({}));
+                    throw new Error(err.detail || `Upload failed (${res.status})`);
+                }
 
-                // Poll until complete (max 120 s).
-                let result = null;
-                for (let i = 0; i < 120; i++) {
-                    await wait(1000);
-                    const poll = await apiFetch(`/analysis/${email_id}/status`);
-                    if (poll.ok) {
-                        const d = await poll.json();
-                        if (d.status !== 'pending') { result = d; break; }
+                const data = await res.json();
+                // data = { queued:[{email_id,filename,status}], errors:[{filename,error}], total_queued, total_errors }
+
+                // Update per-file status badges
+                _emlFileQueue.forEach((file, i) => {
+                    const statusEl = document.getElementById(`file-status-${i}`);
+                    if (!statusEl) return;
+                    const queued = (data.queued || []).find(q => q.filename === file.name);
+                    const error  = (data.errors || []).find(e => e.filename === file.name);
+                    if (queued) {
+                        statusEl.innerHTML = `<span style="font-size:11px;color:#16a34a;font-weight:500;display:flex;align-items:center;gap:3px">
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20,6 9,17 4,12"/></svg>Queued</span>`;
+                    } else if (error) {
+                        statusEl.innerHTML = `<span style="font-size:11px;color:#dc2626" title="${escapeHtml(error.error)}">✕ ${escapeHtml(error.error)}</span>`;
                     }
-                    const pct = Math.min(30 + i, 90);
-                    setText("progress-percent", `${pct}%`);
-                    document.getElementById("progress-bar").style.width = `${pct}%`;
-                    const stepIdx = Math.floor(i / 40);
-                    if (stepIdx >= 1 && stepIdx <= 2) renderUploadSteps(stepIdx);
-                }
-                if (!result) throw new Error('Analysis timed out. Please try again.');
+                });
 
-                setText("progress-text", "Analysis complete.");
-                setText("progress-percent", "100%");
-                document.getElementById("progress-bar").style.width = "100%";
-                renderUploadSteps(3);
-
-                const score = result.risk_score ?? 0;
-                const sev   = capitalize(result.severity || 'low');
-                setText("upload-risk-score", score);
-                setText("upload-risk-label", `${sev} Risk`);
-
-                const evList = document.getElementById("upload-evidence-list");
-                if (evList) {
-                    evList.innerHTML = result.explanation
-                        ? `<li class="flex items-start"><iconify-icon icon="solar:danger-triangle-linear" class="text-amber-500 mr-2 mt-0.5 shrink-0"></iconify-icon><span>${escapeHtml(result.explanation)}</span></li>`
-                        : '<li class="text-slate-500 text-sm">No detailed evidence available.</li>';
+                const qCount = data.total_queued || 0;
+                const eCount = data.total_errors  || 0;
+                if (qCount > 0) {
+                    showAppMessage(`${qCount} email${qCount !== 1 ? 's' : ''} queued for analysis.${eCount > 0 ? ` ${eCount} skipped.` : ''}`);
+                    startBulkAnalysisPolling(data.queued || []);
+                } else {
+                    showUploadMessage('All files were skipped — check formats and sizes.');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Analyse All'; }
                 }
 
-                showElement(document.getElementById("results-column"));
-                showAppMessage("File analysis complete.");
             } catch (err) {
-                hideElement(document.getElementById("progress-card"));
-                showUploadMessage(err.message || "Upload failed. Please try again.");
+                showUploadMessage(err.message || 'Upload failed. Please try again.');
+                if (btn) { btn.disabled = false; btn.textContent = 'Analyse All'; }
             }
         }
 
-        function renderUploadResult(result) {
-            setText("upload-risk-score", result.riskScore);
-            setText("upload-risk-label", result.classification);
-            const evidenceList = document.getElementById("upload-evidence-list");
-            if (evidenceList) {
-                evidenceList.innerHTML = result.evidence.map(item => `
-                    <li class="flex items-start">
-                        <iconify-icon icon="solar:danger-triangle-linear" class="text-amber-500 mr-2 mt-0.5 shrink-0" stroke-width="1.5" aria-hidden="true"></iconify-icon>
-                        <span>${escapeHtml(item)}</span>
-                    </li>
-                `).join("");
-            }
+        async function startBulkAnalysisPolling(queuedEmails) {
+            let pending   = [...queuedEmails];
+            let completed = 0;
 
-            const metadata = document.getElementById("upload-metadata-list");
-            if (metadata) {
-                metadata.innerHTML = Object.entries(result.metadata).map(([label, value]) => `
-                    <div>
-                        <dt class="text-xs font-semibold text-slate-400 uppercase tracking-wider">${escapeHtml(label.replace(/([A-Z])/g, " $1"))}</dt>
-                        <dd class="text-sm text-slate-700 mt-1 break-words">${escapeHtml(value)}</dd>
-                    </div>
-                `).join("");
-            }
+            const pollInterval = setInterval(async () => {
+                if (pending.length === 0) { clearInterval(pollInterval); return; }
+
+                const checks = pending.map(async item => {
+                    try {
+                        const res = await apiFetch(`/analysis/${item.email_id}/status`);
+                        if (!res || !res.ok) return item;
+                        const d = await res.json();
+                        if (d.status === 'pending') return item;
+
+                        // Analysis done — update the queue item badge
+                        completed++;
+                        const fileIdx  = _emlFileQueue.findIndex(f => f.name === item.filename);
+                        const statusEl = fileIdx !== -1 ? document.getElementById(`file-status-${fileIdx}`) : null;
+                        if (statusEl) {
+                            const score = d.risk_score ?? '?';
+                            const cls   = d.classification || 'unknown';
+                            const color = cls === 'phishing'   ? '#dc2626'
+                                        : cls === 'suspicious' ? '#d97706'
+                                        : '#16a34a';
+                            const icon  = cls === 'phishing'   ? '⚠'
+                                        : cls === 'suspicious' ? '~'
+                                        : '✓';
+                            statusEl.innerHTML = `<span style="font-size:11px;color:${color};font-weight:600">${icon} ${capitalize(cls)} (${score})</span>`;
+                        }
+                        return null; // remove from pending
+                    } catch (_) { return item; }
+                });
+
+                const results = await Promise.all(checks);
+                pending = results.filter(Boolean);
+
+                if (pending.length === 0) {
+                    clearInterval(pollInterval);
+                    showAppMessage(`Analysis complete — ${completed} email${completed !== 1 ? 's' : ''} processed.`);
+                    if (currentPage === 'all-emails') renderEmailList();
+                    const btn = document.getElementById('upload-all-btn');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Analyse All'; }
+                }
+            }, 2000);
         }
 
         function resetUploadMock() {
-            mockRemoveFile();
-            renderUploadSteps(-1);
-            setText("progress-text", "Waiting for file selection.");
-            setText("progress-percent", "0%");
-            const bar = document.getElementById("progress-bar");
-            if (bar) bar.style.width = "0%";
-            showUploadMessage("Upload zone reset.", "info");
+            clearUploadTimers();
+            clearFileQueue();
+            showUploadMessage('Upload zone reset.', 'info');
         }
 
         // =====================================================

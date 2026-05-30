@@ -11,7 +11,7 @@ import math
 import os
 import tempfile
 import uuid
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 import structlog
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile, status
@@ -25,6 +25,9 @@ from app.models.email_feature import EmailFeature
 from app.schemas.common import RiskBand, Severity
 from app.schemas.emails import (
     AttachmentMetadata,
+    BulkUploadError,
+    BulkUploadItem,
+    BulkUploadResponse,
     EmailDetail,
     EmailFeatureDetail,
     EmailListItem,
@@ -116,84 +119,91 @@ def _dispatch_analysis_chain(email_id: uuid.UUID) -> None:
 
 @router.post(
     "/emails/upload",
-    response_model=EmailUploadResponse,
+    response_model=BulkUploadResponse,
     status_code=status.HTTP_202_ACCEPTED,
-    summary="Upload a .eml file for analysis",
+    summary="Upload 1–20 .eml files for parallel analysis",
 )
-async def upload_email(
-    file: UploadFile = File(...),
+async def upload_emails(
+    files: List[UploadFile] = File(...),
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> EmailUploadResponse:
-    """Ingest a .eml file and queue it for the analysis pipeline.
+) -> BulkUploadResponse:
+    """Ingest up to 20 .eml files and queue each for the analysis pipeline.
 
-    Validation (Section 4.2):
-        - ``Content-Type`` must be ``message/rfc822`` **or** the filename
-          must end with ``.eml`` (browsers often send ``application/octet-stream``
-          for file uploads).
+    Each file is validated individually:
+        - Filename must end with ``.eml`` **or** Content-Type is ``message/rfc822``.
         - File size ≤ 5 MB.
         - File must be parseable by :func:`~app.services.email_parser.parse_eml`.
 
-    On success: saves raw bytes to ``/tmp/{uuid}.eml``, INSERTs the
-    ``Email`` row with ``received_at`` from the parsed ``Date:`` header,
-    and fires the Celery analysis chain.  Returns 202 immediately.
+    Invalid files are collected in ``errors`` and skipped; valid files are
+    saved to ``/tmp/{uuid}.eml``, inserted as ``Email`` rows, and queued for
+    the Celery analysis chain.  Returns 202 immediately with:
+        ``queued``       — list of {email_id, filename, status} for accepted files
+        ``errors``       — list of {filename, error} for rejected files
+        ``total_queued`` — count of accepted files
+        ``total_errors`` — count of rejected files
 
-    UC-02 step 1.
+    UC-02 step 1 (bulk variant).
     """
-    # ── Content-type / filename validation ───────────────────────────────────
-    filename_ok = file.filename and file.filename.lower().endswith(".eml")
-    content_type_ok = file.content_type == "message/rfc822"
-    if not (filename_ok or content_type_ok):
+    if len(files) > 20:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Only .eml files are accepted (message/rfc822 or .eml extension)",
+            detail="Maximum 20 files per upload. Please split into smaller batches.",
         )
 
-    raw = await file.read()
+    queued: list[BulkUploadItem] = []
+    errors: list[BulkUploadError] = []
 
-    # ── Size validation ───────────────────────────────────────────────────────
-    if len(raw) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="File too large — maximum 5 MB",
+    for file in files:
+        fname = file.filename or "(unknown)"
+
+        # ── Per-file validation ─────────────────────────────────────────────
+        filename_ok     = file.filename and file.filename.lower().endswith(".eml")
+        content_type_ok = file.content_type == "message/rfc822"
+        if not (filename_ok or content_type_ok):
+            errors.append(BulkUploadError(filename=fname, error="Not a .eml file — skipped"))
+            continue
+
+        raw = await file.read()
+
+        if len(raw) > _MAX_UPLOAD_BYTES:
+            errors.append(BulkUploadError(filename=fname, error="File exceeds 5 MB limit — skipped"))
+            continue
+
+        try:
+            parsed = parse_eml(raw)
+        except EmailParseError:
+            errors.append(BulkUploadError(filename=fname, error="Could not parse .eml file — skipped"))
+            continue
+
+        # ── Persist and queue ───────────────────────────────────────────────
+        email_id = uuid.uuid4()
+        tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
+        with open(tmp_path, "xb") as f_out:
+            f_out.write(raw)
+
+        email_record = Email(
+            id=email_id,
+            org_id=current_user.org_id,
+            ingestion_source="upload",
+            status="pending",
+            received_at=parsed["received_at"],
         )
+        db.add(email_record)
+        await db.flush()
 
-    # ── Parse and validate ────────────────────────────────────────────────────
-    try:
-        parsed = parse_eml(raw)
-    except EmailParseError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Invalid .eml file",
-        ) from exc
+        _dispatch_analysis_chain(email_id)
 
-    # ── Save raw bytes ────────────────────────────────────────────────────────
-    # Use tempfile.gettempdir() instead of a hardcoded /tmp path (CWE-377).
-    # Open with 'xb' (exclusive-create + binary) so the call fails atomically
-    # if the UUID-named file already exists — prevents TOCTOU/symlink races.
-    email_id = uuid.uuid4()
-    tmp_path = os.path.join(tempfile.gettempdir(), f"{email_id}.eml")
-    with open(tmp_path, "xb") as f_out:
-        f_out.write(raw)
+        logger.info("email_upload_queued", email_id=str(email_id), filename=fname,
+                    org_id=str(current_user.org_id))
+        queued.append(BulkUploadItem(email_id=email_id, filename=fname, status="pending"))
 
-    # ── INSERT Email row ──────────────────────────────────────────────────────
-    # received_at comes from the parsed Date: header; parse_eml always returns
-    # a timezone-aware datetime (falls back to utcnow on malformed headers).
-    email_record = Email(
-        id=email_id,
-        org_id=current_user.org_id,
-        ingestion_source="upload",
-        status="pending",
-        received_at=parsed["received_at"],
+    return BulkUploadResponse(
+        queued=queued,
+        errors=errors,
+        total_queued=len(queued),
+        total_errors=len(errors),
     )
-    db.add(email_record)
-    await db.flush()
-
-    # ── Fire analysis chain ───────────────────────────────────────────────────
-    _dispatch_analysis_chain(email_id)
-
-    logger.info("email_upload_queued", email_id=str(email_id), org_id=str(current_user.org_id))
-    return EmailUploadResponse(email_id=email_id, status="pending")
 
 
 # ---------------------------------------------------------------------------
