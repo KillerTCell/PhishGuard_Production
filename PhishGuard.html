@@ -1974,12 +1974,15 @@ outline-offset: 2px;
             const url = `${API_BASE}/events?token=${encodeURIComponent(window.authToken)}`;
             const source = new EventSource(url);
             window._sseSource = source;
+            source.onopen = () => { console.log('SSE connected'); };
             source.onmessage = (event) => {
                 try { handleSSEEvent(JSON.parse(event.data)); } catch (_) {}
             };
             source.onerror = () => {
+                console.warn('SSE disconnected, reconnecting in 3s...');
                 source.close();
-                setTimeout(() => { if (window.authToken) connectSSE(); }, 5000);
+                window._sseSource = null;
+                setTimeout(() => { if (window.authToken) connectSSE(); }, 3000);
             };
         }
 
@@ -1993,16 +1996,24 @@ outline-offset: 2px;
             if (!type) return;
             switch (type) {
                 case 'scan_complete':
+                    // Always refresh dashboard stats in the background (update DOM even if hidden)
+                    setTimeout(renderDashboard, 500);
+                    // Refresh email list if currently visible
                     if (currentPage === 'all-emails') renderEmailList();
-                    if (currentPage === 'home') renderDashboard();
+                    // Show notification
+                    showAppMessage(
+                        `Analysis complete: ${data.classification || 'processed'} — risk ${data.risk_score ?? 0}/100`
+                    );
                     break;
                 case 'quarantine_created':
                     if (currentPage === 'quarantine') { renderQuarantineQueue(); renderDigestPreview(); }
-                    if (currentPage === 'home') renderDashboard();
+                    // Always refresh dashboard so quarantine count stays current
+                    setTimeout(renderDashboard, 500);
                     showAppMessage('New threat quarantined.');
                     break;
                 case 'threshold_changed':
                     if (currentPage === 'settings') renderSettings();
+                    setTimeout(renderDashboard, 500);
                     break;
                 case 'forwarding_test_complete':
                     if (currentPage === 'forwarding-inbox') {
@@ -2010,6 +2021,10 @@ outline-offset: 2px;
                         const rc = document.getElementById('forward-test-result');
                         if (rc) { rc.textContent = 'Test email received and queued for analysis.'; showElement(rc); }
                     }
+                    break;
+                case 'imap_ingested':
+                    showAppMessage(`New forwarded email from ${data.sender || 'unknown'}`);
+                    setTimeout(renderDashboard, 800);
                     break;
                 case 'digest_sent':
                     showAppMessage('Digest email sent successfully.');
@@ -3777,6 +3792,8 @@ outline-offset: 2px;
                 setText("ma-result-title",       `${sev} Risk`);
                 setText("ma-result-description", result.explanation || "Analysis complete.");
                 showElement(document.getElementById("ma-result"));
+                // Refresh dashboard so new email appears in stats
+                setTimeout(renderDashboard, 800);
             } catch (err) {
                 message.textContent = err.message || "Analysis failed. Please try again.";
                 message.classList.remove("hidden");
@@ -4035,6 +4052,8 @@ outline-offset: 2px;
                     clearInterval(pollInterval);
                     showAppMessage(`Analysis complete — ${completed} email${completed !== 1 ? 's' : ''} processed.`);
                     if (currentPage === 'all-emails') renderEmailList();
+                    // Refresh dashboard stats so counts reflect newly analysed emails
+                    setTimeout(renderDashboard, 800);
                     const btn = document.getElementById('upload-all-btn');
                     if (btn) { btn.disabled = false; btn.textContent = 'Analyse All'; }
                 }
