@@ -35,7 +35,7 @@ and added locally for frontend actions in the current session.
 | Email deleted (single) | Local | info | Email Deleted |
 | Emails bulk deleted | Local | info | N Emails Deleted |
 | User invited | Local | info | Invitation Sent |
-| User deactivated / reactivated | Local | info | User Account Updated |
+| User deactivated / reactivated | Local (after PATCH /users/{id}) | info | User Deactivated / User Reactivated |
 | Settings / thresholds saved | Local | success | Settings Saved |
 | Threshold changed via SSE | SSE `threshold_changed` | warning | Thresholds Updated |
 | IMAP email received | SSE `imap_ingested` | info | New Forwarded Email |

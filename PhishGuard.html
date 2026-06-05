@@ -4677,11 +4677,11 @@ outline-offset: 2px;
                 toggleBtn = `<button type="button" disabled title="You cannot deactivate your own account"
                     style="${btnBase};opacity:0.3;cursor:not-allowed;border:1px solid #ef4444;color:#ef4444">&#9646;&#9646;</button>`;
             } else if (isActive) {
-                toggleBtn = `<button type="button" onclick="openUserModal('deactivate','${user.id}')"
+                toggleBtn = `<button type="button" onclick="showDeactivateModal('${user.id}',false)"
                     title="Deactivate user" style="${btnBase};cursor:pointer;border:1px solid #ef4444;color:#ef4444"
                     onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='transparent'">&#9646;&#9646;</button>`;
             } else {
-                toggleBtn = `<button type="button" onclick="openUserModal('reactivate','${user.id}')"
+                toggleBtn = `<button type="button" onclick="showDeactivateModal('${user.id}',true)"
                     title="Reactivate user" style="${btnBase};cursor:pointer;border:1px solid #16a34a;color:#16a34a"
                     onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='transparent'">&#9654;</button>`;
             }
@@ -4875,7 +4875,7 @@ outline-offset: 2px;
                 _modalConfirmHandler     = () => _doDeleteUser(userId);
             }
 
-            confirm.onclick = () => { closeUserModal(); if (_modalConfirmHandler) _modalConfirmHandler(); };
+            confirm.onclick = () => { const h = _modalConfirmHandler; closeUserModal(); if (h) h(); };
             modal.style.display = 'flex';
         }
 
@@ -4883,6 +4883,44 @@ outline-offset: 2px;
             const modal = document.getElementById('user-action-modal');
             if (modal) modal.style.display = 'none';
             _modalConfirmHandler = null;
+        }
+
+        function showDeactivateModal(userId, isActive) {
+            const user = systemUsersState.find(u => u.id === userId);
+            const userName = user?.name || 'User';
+            const modal = document.getElementById('user-action-modal');
+            if (!modal) {
+                if (confirm(`${isActive ? 'Reactivate' : 'Deactivate'} ${userName}?`)) {
+                    executeUserAction(userId, isActive, userName);
+                }
+                return;
+            }
+            const iconEl     = document.getElementById('modal-icon');
+            const titleEl    = document.getElementById('modal-title');
+            const msgEl      = document.getElementById('modal-message');
+            const confirmBtn = document.getElementById('modal-confirm');
+            const cancelBtn  = document.getElementById('modal-cancel');
+            if (iconEl)  { iconEl.style.background = isActive ? '#dcfce7' : '#fef3c7'; iconEl.textContent = isActive ? '✓' : '⏸'; }
+            if (titleEl) titleEl.textContent = isActive ? `Reactivate ${userName}?` : `Deactivate ${userName}?`;
+            if (msgEl)   msgEl.textContent   = isActive ? 'They will regain full access immediately.' : 'They will lose access immediately. You can reactivate them at any time.';
+            if (confirmBtn) {
+                confirmBtn.textContent      = isActive ? 'Reactivate' : 'Deactivate';
+                confirmBtn.style.background = isActive ? '#16a34a' : '#f59e0b';
+                confirmBtn.style.color      = 'white';
+                confirmBtn.style.border     = 'none';
+                confirmBtn.disabled         = false;
+                // cloneNode clears any stale onclick handlers from prior opens
+                const newBtn = confirmBtn.cloneNode(true);
+                confirmBtn.parentNode.replaceChild(newBtn, confirmBtn);
+                newBtn.onclick = async () => {
+                    newBtn.disabled    = true;
+                    newBtn.textContent = 'Processing...';
+                    modal.style.display = 'none';
+                    await executeUserAction(userId, isActive, userName);
+                };
+            }
+            if (cancelBtn) { cancelBtn.textContent = 'Cancel'; cancelBtn.onclick = () => { modal.style.display = 'none'; }; }
+            modal.style.display = 'flex';
         }
 
         // Generic confirmation modal — reuses #user-action-modal.
@@ -4904,35 +4942,42 @@ outline-offset: 2px;
                 confirmBtn.textContent      = confirmText || 'Confirm';
             }
             _modalConfirmHandler = onConfirm;
-            if (confirmBtn) confirmBtn.onclick = async () => { closeUserModal(); if (_modalConfirmHandler) await _modalConfirmHandler(); };
+            if (confirmBtn) confirmBtn.onclick = async () => { const h = _modalConfirmHandler; closeUserModal(); if (h) await h(); };
             modal.style.display = 'flex';
         }
 
-        async function _doToggleUser(userId, activate) {
+        async function executeUserAction(userId, isActive, userName) {
             try {
                 const resp = await apiFetch(`/users/${userId}`, {
                     method: 'PATCH',
-                    body: JSON.stringify({ is_active: activate }),
+                    body: JSON.stringify({ is_active: isActive }),
                 });
-                if (!resp.ok) {
-                    setUserManagementStatus(`Could not ${activate ? 'reactivate' : 'deactivate'} user.`, 'error');
-                    return;
-                }
-                const idx = systemUsersState.findIndex(u => u.id === userId);
-                if (idx !== -1) {
-                    systemUsersState[idx].status = activate ? 'Active' : 'Inactive';
-                    const oldRow = document.getElementById(`user-row-${userId}`);
-                    if (oldRow) {
-                        const tmp = document.createElement('tbody');
-                        tmp.innerHTML = buildUserRow(systemUsersState[idx]);
-                        oldRow.replaceWith(tmp.firstElementChild);
+                if (resp.status === 204 || resp.ok) {
+                    const idx = systemUsersState.findIndex(u => u.id === userId);
+                    if (idx !== -1) {
+                        systemUsersState[idx].status = isActive ? 'Active' : 'Inactive';
+                        const oldRow = document.getElementById(`user-row-${userId}`);
+                        if (oldRow) {
+                            const tmp = document.createElement('tbody');
+                            tmp.innerHTML = buildUserRow(systemUsersState[idx]);
+                            oldRow.replaceWith(tmp.firstElementChild);
+                        }
                     }
+                    const name = userName || systemUsersState.find(u => u.id === userId)?.name || 'User';
+                    const action = isActive ? 'reactivated' : 'deactivated';
+                    showAppMessage(`${name} has been ${action}.`);
+                    if (typeof addNotification === 'function') {
+                        addNotification({ event: 'user_status_changed', title: isActive ? 'User Reactivated' : 'User Deactivated', message: `${name} account ${action}`, severity: 'info', timestamp: new Date().toISOString() });
+                    }
+                } else {
+                    const errData = await resp.json().catch(() => ({}));
+                    const msg = errData?.detail || `Error ${resp.status}`;
+                    setUserManagementStatus(`Failed to update user: ${msg}`, 'error');
+                    console.error('PATCH /users failed:', resp.status, errData);
                 }
-                const name = systemUsersState.find(u => u.id === userId)?.name || 'User';
-                showAppMessage(`${name} has been ${activate ? 'reactivated' : 'deactivated'}.`);
-                addNotification({ event: 'user_status_changed', title: activate ? 'User Reactivated' : 'User Deactivated', message: `${name} account ${activate ? 'reactivated' : 'deactivated'}.`, severity: 'info', timestamp: new Date().toISOString() });
-            } catch (_) {
-                setUserManagementStatus('Action failed. Check your connection.', 'error');
+            } catch (err) {
+                setUserManagementStatus(`Network error: ${err.message}`, 'error');
+                console.error('executeUserAction error:', err);
             }
         }
 
