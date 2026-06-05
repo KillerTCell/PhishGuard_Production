@@ -4668,26 +4668,30 @@ outline-offset: 2px;
             // Role badge — click to edit (disabled for own row)
             const roleBadge = buildRoleBadge(user);
 
-            // Shared button base style — compact 36x36 icon buttons
-            const btnBase = `width:36px;height:36px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;background:transparent;font-size:15px;line-height:1;flex-shrink:0`;
+            // Shared button base style — compact 30×30 icon buttons
+            const btnBase = `width:30px;height:30px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:transparent;line-height:1;flex-shrink:0;padding:0`;
 
-            // Toggle button: pause (deactivate, red) / play (reactivate, green)
+            // SVG icons for toggle buttons
+            const pauseSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>`;
+            const playSvg  = `<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><polygon points="5,3 19,12 5,21"/></svg>`;
+
+            // Toggle button: pause (deactivate, amber) / play (reactivate, green)
             let toggleBtn;
             if (isSelf) {
-                toggleBtn = `<button type="button" disabled title="You cannot deactivate your own account"
-                    style="${btnBase};opacity:0.3;cursor:not-allowed;border:1px solid #ef4444;color:#ef4444">&#9646;&#9646;</button>`;
+                toggleBtn = `<button type="button" class="user-toggle-btn" disabled title="You cannot deactivate your own account"
+                    style="${btnBase};opacity:0.3;cursor:not-allowed;border:1px solid #fcd34d;color:#d97706">${pauseSvg}</button>`;
             } else if (isActive) {
-                toggleBtn = `<button type="button" onclick="showDeactivateModal('${user.id}',false)"
-                    title="Deactivate user" style="${btnBase};cursor:pointer;border:1px solid #ef4444;color:#ef4444"
-                    onmouseover="this.style.background='#fef2f2'" onmouseout="this.style.background='transparent'">&#9646;&#9646;</button>`;
+                toggleBtn = `<button type="button" class="user-toggle-btn" onclick="showDeactivateModal('${user.id}',false)"
+                    title="Deactivate user" style="${btnBase};cursor:pointer;border:1px solid #fcd34d;color:#d97706;transition:all 0.15s"
+                    onmouseover="this.style.background='#fffbeb'" onmouseout="this.style.background='transparent'">${pauseSvg}</button>`;
             } else {
-                toggleBtn = `<button type="button" onclick="showDeactivateModal('${user.id}',true)"
-                    title="Reactivate user" style="${btnBase};cursor:pointer;border:1px solid #16a34a;color:#16a34a"
-                    onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='transparent'">&#9654;</button>`;
+                toggleBtn = `<button type="button" class="user-toggle-btn" onclick="showDeactivateModal('${user.id}',true)"
+                    title="Reactivate user" style="${btnBase};cursor:pointer;border:1px solid #86efac;color:#16a34a;transition:all 0.15s"
+                    onmouseover="this.style.background='#f0fdf4'" onmouseout="this.style.background='transparent'">${playSvg}</button>`;
             }
 
             // Delete button — SVG trash icon, red
-            const trashSvg = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6M14,11v6"/><path d="M9,6V4h6v2"/></svg>`;
+            const trashSvg = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3,6 5,6 21,6"/><path d="M19,6l-1,14H6L5,6"/><path d="M10,11v6M14,11v6"/><path d="M9,6V4h6v2"/></svg>`;
             const deleteBtn = isSelf
                 ? `<button type="button" disabled title="You cannot delete your own account" aria-label="Delete user (unavailable)"
                     style="${btnBase};opacity:0.3;cursor:not-allowed;border:1px solid #ef4444;color:#ef4444">${trashSvg}</button>`
@@ -4709,7 +4713,7 @@ outline-offset: 2px;
                     <td class="px-5 py-3">${statusBadge}</td>
                     <td class="px-5 py-3 text-slate-500 text-sm">${escapeHtml(user.lastActive)}</td>
                     <td class="px-5 py-3">
-                        <div style="display:flex;align-items:center;gap:8px">
+                        <div style="display:flex;align-items:center;gap:6px">
                             ${toggleBtn}
                             ${deleteBtn}
                         </div>
