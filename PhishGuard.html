@@ -544,8 +544,8 @@ outline-offset: 2px;
                                         <p class="text-xs text-slate-500 mt-1">Top features triggering elevated risk scores</p>
                                     </div>
                                     <div class="flex bg-slate-100/80 rounded-lg p-1 border border-slate-200/60 shrink-0">
-                                    <button type="button" onclick="setDashboardRange('week')" id="range-week" class="px-3 py-1 text-xs font-medium bg-white shadow-sm rounded-md text-slate-900">This Week</button>
-                                    <button type="button" onclick="setDashboardRange('all')" id="range-all" class="px-3 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors">All Time</button>
+                                    <button type="button" onclick="setDashboardRange('week')" id="range-week" class="px-3 py-1 text-xs font-medium text-slate-500 hover:text-slate-900 transition-colors rounded-md">This Week</button>
+                                    <button type="button" onclick="setDashboardRange('all')" id="range-all" class="px-3 py-1 text-xs font-medium bg-white shadow-sm rounded-md text-slate-900">All Time</button>
                                 </div>
                             </div>
                                 <div id="detection-drivers" class="space-y-5"></div>
@@ -2280,7 +2280,7 @@ outline-offset: 2px;
         let activeListPage = "all-emails";
         let previousListPage = "all-emails";
         let currentEmailId = null;
-        let currentDashboardRange = "week";
+        let currentDashboardRange = "all";
         let settingsState = { suspiciousThreshold: 30, phishingThreshold: 60, autoQuarantine: true, subjectWarning: true };
         let selectedUploadFile = null;
         let uploadTimerIds = [];
@@ -4013,10 +4013,22 @@ outline-offset: 2px;
         }
 
         async function startBulkAnalysisPolling(queuedEmails) {
-            let pending   = [...queuedEmails];
-            let completed = 0;
+            let pending     = [...queuedEmails];
+            let completed   = 0;
+            let attempts    = 0;
+            const maxAttempts = 30; // 30 × 2 s = 60 s max
 
             const pollInterval = setInterval(async () => {
+                // Guard: stop after max attempts even if still pending
+                if (attempts >= maxAttempts) {
+                    clearInterval(pollInterval);
+                    showAppMessage('Analysis timed out — some emails may still be processing.');
+                    const btn = document.getElementById('upload-all-btn');
+                    if (btn) { btn.disabled = false; btn.textContent = 'Analyse All'; }
+                    return;
+                }
+                attempts++;
+
                 if (pending.length === 0) { clearInterval(pollInterval); return; }
 
                 const checks = pending.map(async item => {
