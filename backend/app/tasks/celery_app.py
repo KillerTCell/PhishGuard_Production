@@ -38,6 +38,7 @@ celery_app = Celery(
         "app.tasks.forwarding_tasks",
         "app.tasks.export_tasks",
         "app.tasks.maintenance_tasks",
+        "app.tasks.training_tasks",
     ],
 )
 

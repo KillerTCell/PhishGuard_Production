@@ -376,6 +376,7 @@ def create_app() -> FastAPI:
     from app.routers.notifications import router as notifications_router
     from app.routers.audit import router as audit_router
     from app.routers.health import router as health_router
+    from app.routers.training import router as training_router
 
     app.include_router(auth_router,          prefix=_V1)
     app.include_router(emails_router,        prefix=_V1)
@@ -391,6 +392,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router, prefix=_V1)
     app.include_router(audit_router,         prefix=_V1)
     app.include_router(health_router,        prefix=_V1)
+    app.include_router(training_router,      prefix=_V1)
 
     return app
 

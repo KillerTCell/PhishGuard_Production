@@ -382,6 +382,14 @@ outline-offset: 2px;
                             <iconify-icon icon="solar:users-group-rounded-linear" class="mr-3 text-lg nav-icon text-slate-400" stroke-width="1.5"></iconify-icon>
                             User Management
                         </button>
+                        <button id="nav-training" type="button" data-target="training" onclick="navigate('training')" class="nav-btn hidden w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-3 shrink-0 text-slate-400" aria-hidden="true">
+                                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                                <path d="M2 17l10 5 10-5"/>
+                                <path d="M2 12l10 5 10-5"/>
+                            </svg>
+                            Model Training
+                        </button>
                     </nav>
                 </div>
             </div>
@@ -1540,6 +1548,223 @@ outline-offset: 2px;
                     </div>
 
                     <!-- PAGE: AI Assistant -->
+                    <!-- PAGE: Training Centre — Admin-only -->
+                    <div id="page-training" class="page-section hidden">
+                        <!-- Header -->
+                        <div class="mb-6">
+                            <h1 class="text-2xl font-semibold text-slate-900 tracking-tight mb-1">Model Training</h1>
+                            <p class="text-sm text-slate-500">Add labelled email samples and retrain the Random Forest classifier.</p>
+                        </div>
+
+                        <!-- Metric cards -->
+                        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 mb-6">
+                            <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-total" class="text-2xl font-semibold tracking-tight text-slate-900 mb-0.5">—</h3>
+                                <p class="text-xs font-medium text-slate-500">Total Samples</p>
+                            </div>
+                            <div class="bg-rose-50/30 rounded-2xl border border-rose-100 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-phishing" class="text-2xl font-semibold tracking-tight text-slate-900 mb-0.5">—</h3>
+                                <p class="text-xs font-medium text-slate-500">Phishing</p>
+                            </div>
+                            <div class="bg-emerald-50/30 rounded-2xl border border-emerald-100 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-safe" class="text-2xl font-semibold tracking-tight text-slate-900 mb-0.5">—</h3>
+                                <p class="text-xs font-medium text-slate-500">Safe</p>
+                            </div>
+                            <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-new" class="text-2xl font-semibold tracking-tight text-slate-900 mb-0.5">—</h3>
+                                <p class="text-xs font-medium text-slate-500">New Since Last Run</p>
+                            </div>
+                            <div class="bg-indigo-50/30 rounded-2xl border border-indigo-100 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-f1" class="text-2xl font-semibold tracking-tight text-slate-900 mb-0.5">—</h3>
+                                <p class="text-xs font-medium text-slate-500">Current F1</p>
+                            </div>
+                            <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-sm flex flex-col">
+                                <h3 id="tc-stat-version" class="text-sm font-semibold tracking-tight text-slate-700 mb-0.5 mt-1">—</h3>
+                                <p class="text-xs font-medium text-slate-500">Model Version</p>
+                            </div>
+                        </div>
+
+                        <!-- Additive data info banner (FIX 6) -->
+                        <div id="tc-info-banner" class="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl p-4 mb-6">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+                            <div>
+                                <p class="text-sm font-semibold text-blue-900">Training data is cumulative</p>
+                                <p class="text-xs text-blue-700 mt-0.5">Every sample you add improves the model permanently. New uploads are added to the existing <strong id="tc-banner-count">0</strong> samples — nothing is ever replaced. The more diverse, clean, correctly-labelled data you add, the more accurately PhishGuard can detect real threats.</p>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+                            <!-- Left column: Add training data -->
+                            <section class="lg:col-span-3 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                <div class="px-5 py-4 border-b border-slate-100">
+                                    <h2 class="text-sm font-semibold text-slate-900">Add Training Data</h2>
+                                    <p class="text-xs text-slate-500 mt-0.5">Label email samples as phishing or safe. Each sample adds to the accumulated dataset.</p>
+                                </div>
+
+                                <!-- Tabs: Paste / Upload / From Quarantine -->
+                                <div class="border-b border-slate-200">
+                                    <nav class="flex space-x-1 -mb-px px-5" role="tablist" aria-label="Add training data mode">
+                                        <button id="tc-tab-paste-btn" type="button" role="tab" aria-selected="true" aria-controls="tc-tab-paste"
+                                                onclick="switchTcTab('paste')"
+                                                class="px-4 py-2.5 text-sm font-medium border-b-2 border-indigo-600 text-indigo-700 transition-colors">
+                                            Paste Text
+                                        </button>
+                                        <button id="tc-tab-upload-btn" type="button" role="tab" aria-selected="false" aria-controls="tc-tab-upload"
+                                                onclick="switchTcTab('upload')"
+                                                class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors">
+                                            Upload .eml
+                                        </button>
+                                        <button id="tc-tab-quarantine-btn" type="button" role="tab" aria-selected="false" aria-controls="tc-tab-quarantine"
+                                                onclick="switchTcTab('quarantine')"
+                                                class="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors">
+                                            From Quarantine
+                                        </button>
+                                    </nav>
+                                </div>
+
+                                <!-- Paste tab -->
+                                <div id="tc-tab-paste" role="tabpanel" class="p-5 space-y-4">
+                                    <div>
+                                        <label class="block text-sm font-medium text-slate-700 mb-1.5">Email body text</label>
+                                        <textarea id="tc-paste-body" rows="5" placeholder="Paste the email body or headers here…" class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-800 leading-relaxed"></textarea>
+                                    </div>
+                                    <div class="flex gap-3">
+                                        <button type="button" onclick="tcAddPasteSample('phishing')"
+                                            class="flex-1 bg-rose-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-rose-700 transition-colors shadow-sm">
+                                            Label as Phishing
+                                        </button>
+                                        <button type="button" onclick="tcAddPasteSample('safe')"
+                                            class="flex-1 bg-emerald-600 text-white px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-emerald-700 transition-colors shadow-sm">
+                                            Label as Safe
+                                        </button>
+                                    </div>
+                                    <p id="tc-paste-status" class="hidden text-xs font-medium" aria-live="polite"></p>
+                                </div>
+
+                                <!-- Upload .eml tab -->
+                                <div id="tc-tab-upload" role="tabpanel" class="p-5 space-y-4 hidden">
+                                    <input id="tc-phishing-input" type="file" class="sr-only" accept=".eml,message/rfc822" multiple onchange="tcHandleEmlFiles(this.files, 'phishing'); this.value='';">
+                                    <input id="tc-safe-input" type="file" class="sr-only" accept=".eml,message/rfc822" multiple onchange="tcHandleEmlFiles(this.files, 'safe'); this.value='';">
+
+                                    <!-- Two drop zones side by side -->
+                                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                        <!-- Phishing drop zone -->
+                                        <div id="tc-drop-phishing" role="button" tabindex="0" aria-label="Drop phishing .eml files"
+                                            onclick="document.getElementById('tc-phishing-input').click()"
+                                            ondragover="tcDragOver(event,'phishing')" ondragleave="tcDragLeave(event,'phishing')" ondrop="tcDrop(event,'phishing')"
+                                            class="border-2 border-dashed border-rose-200 rounded-2xl bg-rose-50/40 p-5 text-center cursor-pointer hover:border-rose-400 hover:bg-rose-50/70 transition-colors">
+                                            <div class="w-9 h-9 rounded-xl bg-white border border-rose-200 shadow-sm flex items-center justify-center mx-auto mb-3">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ef4444" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><path d="M12 17h.01"/></svg>
+                                            </div>
+                                            <p class="text-xs font-semibold text-rose-700 mb-0.5">Phishing .eml files</p>
+                                            <p class="text-xs text-slate-500">Drop here or click to browse</p>
+                                            <span id="tc-phishing-count" class="inline-block mt-2 text-xs font-medium text-rose-600 bg-rose-100 px-2 py-0.5 rounded-full">0 files</span>
+                                        </div>
+
+                                        <!-- Safe drop zone -->
+                                        <div id="tc-drop-safe" role="button" tabindex="0" aria-label="Drop safe .eml files"
+                                            onclick="document.getElementById('tc-safe-input').click()"
+                                            ondragover="tcDragOver(event,'safe')" ondragleave="tcDragLeave(event,'safe')" ondrop="tcDrop(event,'safe')"
+                                            class="border-2 border-dashed border-emerald-200 rounded-2xl bg-emerald-50/40 p-5 text-center cursor-pointer hover:border-emerald-400 hover:bg-emerald-50/70 transition-colors">
+                                            <div class="w-9 h-9 rounded-xl bg-white border border-emerald-200 shadow-sm flex items-center justify-center mx-auto mb-3">
+                                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                                            </div>
+                                            <p class="text-xs font-semibold text-emerald-700 mb-0.5">Safe .eml files</p>
+                                            <p class="text-xs text-slate-500">Drop here or click to browse</p>
+                                            <span id="tc-safe-count" class="inline-block mt-2 text-xs font-medium text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full">0 files</span>
+                                        </div>
+                                    </div>
+
+                                    <!-- Queue summary -->
+                                    <div id="tc-upload-summary" style="display:none" class="flex items-center justify-between flex-wrap gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                                        <span id="tc-upload-count-text" class="text-sm text-slate-700 font-medium">0 files queued</span>
+                                        <div class="flex gap-2">
+                                            <button type="button" onclick="tcClearQueue()" class="px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-xs text-slate-600 hover:bg-slate-50 transition-colors">Clear all</button>
+                                            <button type="button" id="tc-upload-btn" onclick="tcUploadAll()" class="px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-semibold hover:bg-indigo-700 transition-colors disabled:opacity-50">Add all files</button>
+                                        </div>
+                                    </div>
+                                    <p id="tc-upload-status" class="hidden text-xs font-medium" aria-live="polite"></p>
+                                </div>
+
+                                <!-- From quarantine tab -->
+                                <div id="tc-tab-quarantine" role="tabpanel" class="p-5 space-y-4 hidden">
+                                    <div class="bg-slate-50 border border-slate-200 rounded-xl p-4">
+                                        <h3 class="text-sm font-semibold text-slate-900 mb-1">Import confirmed phishing emails</h3>
+                                        <p class="text-xs text-slate-500">All emails with status <strong>confirmed_phishing</strong> in your quarantine will be added as phishing training samples. Existing quarantine entries are not affected.</p>
+                                    </div>
+                                    <button type="button" onclick="tcImportQuarantine()"
+                                        class="w-full bg-rose-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-rose-700 transition-colors shadow-sm">
+                                        Import Confirmed Phishing Emails
+                                    </button>
+                                    <p id="tc-quarantine-status" class="hidden text-xs font-medium" aria-live="polite"></p>
+                                </div>
+
+                                <!-- Pending samples list (FIX 4) -->
+                                <div class="border-t border-slate-100">
+                                    <div class="px-5 py-3 flex items-center justify-between">
+                                        <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider">Accumulated Samples</p>
+                                        <span id="tc-sample-count-badge" class="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full font-medium">0</span>
+                                    </div>
+                                    <div id="tc-sample-list" class="divide-y divide-slate-50 max-h-64 overflow-y-auto">
+                                        <div class="px-5 py-8 text-center text-slate-400 text-sm">No samples yet — add your first labelled email above.</div>
+                                    </div>
+                                </div>
+                            </section>
+
+                            <!-- Right column: Retrain -->
+                            <section class="lg:col-span-2 space-y-5">
+                                <!-- Retrain card -->
+                                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                                    <div class="px-5 py-4 border-b border-slate-100">
+                                        <h2 class="text-sm font-semibold text-slate-900">Retrain Model</h2>
+                                        <p class="text-xs text-slate-500 mt-0.5">Uses all <span id="tc-retrain-count">0</span> accumulated samples combined with the synthetic base dataset.</p>
+                                    </div>
+                                    <div class="p-5 space-y-4">
+                                        <button type="button" id="tc-retrain-btn" onclick="tcTriggerRetrain()"
+                                            class="w-full bg-indigo-600 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm flex items-center justify-center gap-2 h-11">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+                                            Retrain model now
+                                        </button>
+
+                                        <!-- Cumulative info message under retrain button -->
+                                        <p id="tc-cumulative-msg" class="text-xs text-slate-500 text-center">Training is cumulative — each retrain uses all <span id="tc-cumulative-count">0</span> samples ever added. New samples improve accuracy without replacing existing data.</p>
+
+                                        <!-- Retrain result card (hidden until complete) -->
+                                        <div id="tc-retrain-result" class="hidden rounded-xl border-l-4 p-4">
+                                            <p id="tc-retrain-result-title" class="text-sm font-semibold"></p>
+                                            <p id="tc-retrain-result-detail" class="text-xs mt-1"></p>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Last trained info card -->
+                                <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-3">
+                                    <h2 class="text-sm font-semibold text-slate-900">Model Status</h2>
+                                    <div class="space-y-2 text-xs">
+                                        <div class="flex justify-between">
+                                            <span class="text-slate-500">Version</span>
+                                            <span id="tc-model-version" class="font-medium text-slate-900">—</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-slate-500">Last Trained</span>
+                                            <span id="tc-last-trained" class="font-medium text-slate-900">—</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-slate-500">F1 Score</span>
+                                            <span id="tc-f1-score" class="font-medium text-slate-900">—</span>
+                                        </div>
+                                        <div class="flex justify-between">
+                                            <span class="text-slate-500">Total Samples</span>
+                                            <span id="tc-total-samples" class="font-medium text-slate-900">—</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </section>
+
+                        </div>
+                    </div>
+
                     <div id="page-ai-assistant" class="page-section hidden max-w-4xl mx-auto h-[calc(100vh-8rem)] flex flex-col">
                         <div class="mb-4 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                             <div>
@@ -2438,7 +2663,8 @@ outline-offset: 2px;
             "forwarding-inbox": "Forwarding Inbox",
             "settings":         "Settings",
             "user-management":  "User Management",
-            "ai-assistant":     "AI Assistant"
+            "ai-assistant":     "AI Assistant",
+            "training":         "Model Training"
         };
 
         let currentUser = null;
@@ -2976,12 +3202,13 @@ outline-offset: 2px;
         // Admin-only pages — frontend visibility gate. Backend must also enforce RBAC.
         // TODO: Protect Settings, Data Export, and User Management with backend RBAC.
         // TODO: Add backend audit logging for privileged actions (threshold writes, exports, user changes).
-        const ADMIN_ONLY_PAGES = ["settings", "user-management"];
+        const ADMIN_ONLY_PAGES = ["settings", "user-management", "training"];
 
         // Human-readable label for the toast shown when a non-Admin tries to open one of these pages.
         const ADMIN_ONLY_LABELS = {
             "settings":        "Settings",
-            "user-management": "User Management"
+            "user-management": "User Management",
+            "training":        "Model Training"
         };
 
         // Shows a one-time onboarding banner the first time a freshly-signed-up Analyst signs in.
@@ -3254,6 +3481,7 @@ outline-offset: 2px;
             // Toggle every admin-only sidebar button.
             document.getElementById("nav-settings")?.classList.toggle("hidden", !isAdmin);
             document.getElementById("nav-user-management")?.classList.toggle("hidden", !isAdmin);
+            document.getElementById("nav-training")?.classList.toggle("hidden", !isAdmin);
 
             // Hide the entire Admin section header for non-Admin users so the sidebar
             // doesn't show an empty group label.
@@ -3334,6 +3562,8 @@ outline-offset: 2px;
                 renderUserManagement();
             } else if (pageId === "ai-assistant") {
                 renderAssistantIntro();
+            } else if (pageId === "training") {
+                renderTrainingCentre();
             }
 
             const targetEl = document.getElementById(targetId);
@@ -5155,6 +5385,318 @@ outline-offset: 2px;
                 status.classList.remove("hidden", "text-emerald-600");
                 status.classList.add("text-rose-600");
             }
+        }
+
+        // =====================================================
+        // TRAINING CENTRE
+        // =====================================================
+
+        // Tab state and file queues for the Training Centre page.
+        let _tcCurrentTab = 'paste';
+        let _tcPhishingFiles = [];  // File[] for phishing drop zone
+        let _tcSafeFiles     = [];  // File[] for safe drop zone
+        let _tcRetrainPollId = null;
+
+        const TC_TABS = ['paste', 'upload', 'quarantine'];
+
+        function switchTcTab(name) {
+            TC_TABS.forEach(t => {
+                const panel = document.getElementById(`tc-tab-${t}`);
+                const btn   = document.getElementById(`tc-tab-${t}-btn`);
+                const active = (t === name);
+                panel?.classList.toggle('hidden', !active);
+                if (btn) {
+                    btn.setAttribute('aria-selected', String(active));
+                    btn.className = active
+                        ? 'px-4 py-2.5 text-sm font-medium border-b-2 border-indigo-600 text-indigo-700 transition-colors'
+                        : 'px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 transition-colors';
+                }
+            });
+            _tcCurrentTab = name;
+        }
+
+        async function renderTrainingCentre() {
+            try {
+                const resp = await apiFetch('/training/stats');
+                if (!resp.ok) return;
+                const stats = await resp.json();
+
+                const setText2 = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
+                setText2('tc-stat-total',   stats.total_samples ?? '—');
+                setText2('tc-stat-phishing', stats.phishing_count ?? '—');
+                setText2('tc-stat-safe',     stats.safe_count ?? '—');
+                setText2('tc-stat-new',      stats.new_since_last_train ?? '—');
+                setText2('tc-stat-f1',       stats.last_f1 != null ? stats.last_f1.toFixed(3) : '—');
+                setText2('tc-stat-version',  stats.model_version || '—');
+                setText2('tc-model-version', stats.model_version || '—');
+                setText2('tc-f1-score',      stats.last_f1 != null ? stats.last_f1.toFixed(3) : '—');
+                setText2('tc-total-samples', stats.total_samples ?? '—');
+                setText2('tc-retrain-count', stats.total_samples ?? 0);
+                setText2('tc-cumulative-count', stats.total_samples ?? 0);
+                setText2('tc-banner-count',  stats.total_samples ?? 0);
+                setText2('tc-sample-count-badge', stats.total_samples ?? 0);
+
+                if (stats.last_trained_at) {
+                    const d = new Date(stats.last_trained_at);
+                    setText2('tc-last-trained', d.toLocaleDateString('en-GB', { day:'numeric', month:'short', year:'numeric' }));
+                } else {
+                    setText2('tc-last-trained', 'Never');
+                }
+            } catch (_) { /* non-fatal */ }
+
+            await tcRefreshSampleList();
+        }
+
+        async function tcRefreshSampleList() {
+            try {
+                const resp = await apiFetch('/training/samples');
+                if (!resp.ok) return;
+                const samples = await resp.json();
+                const list = document.getElementById('tc-sample-list');
+                if (!list) return;
+
+                if (!samples.length) {
+                    list.innerHTML = '<div class="px-5 py-8 text-center text-slate-400 text-sm">No samples yet — add your first labelled email above.</div>';
+                    return;
+                }
+
+                list.innerHTML = samples.map(s => {
+                    const isPhishing = s.label === 'phishing';
+                    const badge = isPhishing
+                        ? '<span class="shrink-0 text-xs font-semibold bg-rose-100 text-rose-700 px-2 py-0.5 rounded-full border border-rose-200">Phishing</span>'
+                        : '<span class="shrink-0 text-xs font-semibold bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full border border-emerald-200">Safe</span>';
+                    const preview = (s.body_preview || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    return `<div id="tc-sample-row-${s.id}" class="flex items-center gap-3 px-5 py-2.5 hover:bg-slate-50 transition-colors">
+                        ${badge}
+                        <span class="flex-1 text-xs text-slate-600 truncate">${preview}</span>
+                        <button type="button" aria-label="Delete sample" onclick="tcDeleteSample('${s.id}')"
+                            class="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg hover:bg-rose-50 text-slate-400 hover:text-rose-500 transition-colors">
+                            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
+                        </button>
+                    </div>`;
+                }).join('');
+            } catch (_) { /* non-fatal */ }
+        }
+
+        async function tcAddPasteSample(label) {
+            const ta = document.getElementById('tc-paste-body');
+            const statusEl = document.getElementById('tc-paste-status');
+            const body = (ta?.value || '').trim();
+            if (!body) {
+                tcShowStatus('tc-paste-status', 'Please enter some email text first.', false);
+                return;
+            }
+            try {
+                const resp = await apiFetch('/training/samples', {
+                    method: 'POST',
+                    body: JSON.stringify({ body_text: body, label }),
+                });
+                if (resp.ok) {
+                    ta.value = '';
+                    tcShowStatus('tc-paste-status', `Sample added as "${label}".`, true);
+                    await renderTrainingCentre();
+                } else {
+                    const d = await resp.json().catch(() => ({}));
+                    tcShowStatus('tc-paste-status', d.detail || 'Failed to add sample.', false);
+                }
+            } catch (_) {
+                tcShowStatus('tc-paste-status', 'Network error — please try again.', false);
+            }
+        }
+
+        function tcShowStatus(elId, msg, success) {
+            const el = document.getElementById(elId);
+            if (!el) return;
+            el.textContent = msg;
+            el.className = 'text-xs font-medium ' + (success ? 'text-emerald-600' : 'text-rose-600');
+            el.classList.remove('hidden');
+            setTimeout(() => el.classList.add('hidden'), 4000);
+        }
+
+        function tcHandleEmlFiles(fileList, label) {
+            const files = Array.from(fileList);
+            if (label === 'phishing') {
+                _tcPhishingFiles = [..._tcPhishingFiles, ...files];
+                document.getElementById('tc-phishing-count').textContent = `${_tcPhishingFiles.length} file${_tcPhishingFiles.length !== 1 ? 's' : ''}`;
+            } else {
+                _tcSafeFiles = [..._tcSafeFiles, ...files];
+                document.getElementById('tc-safe-count').textContent = `${_tcSafeFiles.length} file${_tcSafeFiles.length !== 1 ? 's' : ''}`;
+            }
+            const total = _tcPhishingFiles.length + _tcSafeFiles.length;
+            const summary = document.getElementById('tc-upload-summary');
+            if (summary) summary.style.display = total ? 'flex' : 'none';
+            document.getElementById('tc-upload-count-text').textContent = `${total} file${total !== 1 ? 's' : ''} queued`;
+        }
+
+        function tcDragOver(e, label) {
+            e.preventDefault();
+            const zone = document.getElementById(`tc-drop-${label}`);
+            zone?.classList.add(label === 'phishing' ? 'border-rose-400' : 'border-emerald-400');
+        }
+
+        function tcDragLeave(e, label) {
+            const zone = document.getElementById(`tc-drop-${label}`);
+            zone?.classList.remove(label === 'phishing' ? 'border-rose-400' : 'border-emerald-400');
+        }
+
+        function tcDrop(e, label) {
+            e.preventDefault();
+            tcDragLeave(e, label);
+            const files = Array.from(e.dataTransfer?.files || []).filter(f => f.name.endsWith('.eml') || f.type === 'message/rfc822');
+            if (files.length) tcHandleEmlFiles(files, label);
+        }
+
+        function tcClearQueue() {
+            _tcPhishingFiles = [];
+            _tcSafeFiles = [];
+            document.getElementById('tc-phishing-count').textContent = '0 files';
+            document.getElementById('tc-safe-count').textContent = '0 files';
+            document.getElementById('tc-upload-summary').style.display = 'none';
+        }
+
+        async function tcUploadAll() {
+            const btn = document.getElementById('tc-upload-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
+            let added = 0;
+            try {
+                // Upload phishing files
+                if (_tcPhishingFiles.length) {
+                    const fd = new FormData();
+                    fd.append('label', 'phishing');
+                    _tcPhishingFiles.forEach(f => fd.append('files', f));
+                    const resp = await apiFetch('/training/samples/upload', { method: 'POST', body: fd });
+                    if (resp.ok) { const d = await resp.json(); added += d.added || 0; }
+                }
+                // Upload safe files
+                if (_tcSafeFiles.length) {
+                    const fd = new FormData();
+                    fd.append('label', 'safe');
+                    _tcSafeFiles.forEach(f => fd.append('files', f));
+                    const resp = await apiFetch('/training/samples/upload', { method: 'POST', body: fd });
+                    if (resp.ok) { const d = await resp.json(); added += d.added || 0; }
+                }
+                tcShowStatus('tc-upload-status', `${added} sample${added !== 1 ? 's' : ''} added to dataset.`, true);
+                tcClearQueue();
+                await renderTrainingCentre();
+            } catch (_) {
+                tcShowStatus('tc-upload-status', 'Upload failed — please try again.', false);
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Add all files'; }
+            }
+        }
+
+        async function tcImportQuarantine() {
+            try {
+                const resp = await apiFetch('/training/samples/from-quarantine', { method: 'POST' });
+                if (resp.ok) {
+                    const d = await resp.json();
+                    tcShowStatus('tc-quarantine-status', `${d.added} confirmed phishing email${d.added !== 1 ? 's' : ''} added as training samples.`, true);
+                    await renderTrainingCentre();
+                } else {
+                    tcShowStatus('tc-quarantine-status', 'Import failed — please try again.', false);
+                }
+            } catch (_) {
+                tcShowStatus('tc-quarantine-status', 'Network error — please try again.', false);
+            }
+        }
+
+        async function tcDeleteSample(sampleId) {
+            const row = document.getElementById(`tc-sample-row-${sampleId}`);
+            if (row) {
+                row.style.transition = 'opacity 0.25s';
+                row.style.opacity = '0';
+            }
+            try {
+                await apiFetch(`/training/samples/${sampleId}`, { method: 'DELETE' });
+                setTimeout(() => { row?.remove(); }, 260);
+                await renderTrainingCentre();
+            } catch (_) {
+                if (row) row.style.opacity = '1';
+                showAppMessage('Failed to delete sample.');
+            }
+        }
+
+        async function tcTriggerRetrain() {
+            const btn = document.getElementById('tc-retrain-btn');
+            if (!btn || btn.disabled) return;
+            btn.disabled = true;
+            btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;display:inline-block;margin-right:6px;vertical-align:-2px"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Training model...`;
+
+            const resultEl = document.getElementById('tc-retrain-result');
+            if (resultEl) resultEl.classList.add('hidden');
+
+            try {
+                const resp = await apiFetch('/training/retrain', { method: 'POST' });
+                if (!resp.ok) {
+                    const d = await resp.json().catch(() => ({}));
+                    btn.disabled = false;
+                    btn.innerHTML = 'Retrain model now';
+                    showAppMessage(d.detail || 'Failed to start retrain.');
+                    return;
+                }
+                const { task_id } = await resp.json();
+                tcPollRetrain(task_id, btn);
+            } catch (_) {
+                btn.disabled = false;
+                btn.innerHTML = 'Retrain model now';
+                showAppMessage('Network error — please try again.');
+            }
+        }
+
+        function tcPollRetrain(taskId, btn) {
+            if (_tcRetrainPollId) clearInterval(_tcRetrainPollId);
+            _tcRetrainPollId = setInterval(async () => {
+                try {
+                    const resp = await apiFetch(`/training/retrain/${taskId}`);
+                    if (!resp.ok) return;
+                    const s = await resp.json();
+
+                    if (s.status === 'running' || s.status === 'pending') {
+                        const pct = s.progress || 0;
+                        if (btn) btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="animation:spin 1s linear infinite;display:inline-block;margin-right:6px;vertical-align:-2px"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>Training model... ${pct}%`;
+                    } else if (s.status === 'complete') {
+                        clearInterval(_tcRetrainPollId);
+                        if (btn) { btn.disabled = false; btn.innerHTML = 'Retrain model now'; }
+                        tcShowRetrainResult(s);
+                        await renderTrainingCentre();
+                        addNotification({ event: 'settings_saved', title: 'Model Retrained', message: `Model updated to ${s.model_version}. F1: ${s.f1_after?.toFixed(3)}`, severity: 'success', timestamp: new Date().toISOString() });
+                    } else {
+                        clearInterval(_tcRetrainPollId);
+                        if (btn) { btn.disabled = false; btn.innerHTML = 'Retrain model now'; }
+                        showAppMessage(`Retrain failed: ${s.error || 'unknown error'}`);
+                    }
+                } catch (_) { /* poll again next tick */ }
+            }, 2000);
+        }
+
+        function tcShowRetrainResult(s) {
+            const el = document.getElementById('tc-retrain-result');
+            const title = document.getElementById('tc-retrain-result-title');
+            const detail = document.getElementById('tc-retrain-result-detail');
+            if (!el || !title || !detail) return;
+
+            const f1b = s.f1_before != null ? s.f1_before.toFixed(3) : 'n/a';
+            const f1a = s.f1_after  != null ? s.f1_after.toFixed(3)  : 'n/a';
+            const diff = s.f1_before != null && s.f1_after != null ? (s.f1_after - s.f1_before) : null;
+            const improved = diff != null && diff >= 0;
+
+            el.className = improved
+                ? 'rounded-xl border-l-4 border-emerald-400 bg-emerald-50 p-4'
+                : 'rounded-xl border-l-4 border-amber-400 bg-amber-50 p-4';
+
+            title.textContent = `Model updated — ${s.model_version || ''}`;
+            title.className   = `text-sm font-semibold ${improved ? 'text-emerald-900' : 'text-amber-900'}`;
+
+            if (diff != null) {
+                const sign = diff >= 0 ? '+' : '';
+                detail.textContent = improved
+                    ? `F1: ${f1b} → ${f1a} (${sign}${diff.toFixed(3)} improvement)`
+                    : `F1: ${f1b} → ${f1a} (consider adding more diverse data)`;
+            } else {
+                detail.textContent = `F1: ${f1a}`;
+            }
+            detail.className = `text-xs mt-1 ${improved ? 'text-emerald-700' : 'text-amber-700'}`;
+            el.classList.remove('hidden');
         }
 
         // =====================================================
