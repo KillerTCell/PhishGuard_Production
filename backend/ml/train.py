@@ -51,7 +51,7 @@ _FEATURE_NAMES: list[str] = [
     "known_bad_url",
 ]
 
-_N_SAMPLES = 500   # samples per class
+_N_SAMPLES = 1000  # samples per class (phishing + safe); suspicious uses 400
 _RANDOM_SEED = 42
 
 
@@ -61,10 +61,7 @@ _RANDOM_SEED = 42
 
 
 def _generate_phishing_samples(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Generate *n* synthetic phishing feature vectors.
-
-    Distributions are deliberately well-separated from safe samples so that
-    the Random Forest can easily reach F1 >= 0.85 on held-out test data.
+    """Generate *n* synthetic phishing feature vectors across 5 realistic patterns.
 
     Args:
         rng: NumPy random generator (seeded for reproducibility).
@@ -73,21 +70,64 @@ def _generate_phishing_samples(rng: np.random.Generator, n: int) -> np.ndarray:
     Returns:
         2-D array of shape (n, 7), dtype float64.
     """
-    return np.column_stack(
-        [
-            rng.uniform(0.30, 1.00, n),                                      # urgency_language
-            rng.choice([0.0, 1.0], size=n, p=[0.15, 0.85]),                  # credential_request
-            rng.uniform(0.20, 1.00, n),                                      # link_mismatch
-            rng.uniform(0.30, 1.00, n),                                      # impersonation_language
-            rng.choice([0.0, 0.5, 1.0], size=n, p=[0.05, 0.20, 0.75]),      # auth_failure
-            rng.uniform(0.20, 0.80, n),                                      # grammar_quality
-            rng.choice([0.0, 1.0], size=n, p=[0.30, 0.70]),                  # known_bad_url
-        ]
-    )
+    per_pattern = n // 5
+    remainder = n - per_pattern * 5
+
+    # Pattern 1: Urgency + credential request (classic phishing)
+    p1 = np.column_stack([
+        rng.uniform(0.7, 1.0, per_pattern),                                  # urgency_language
+        np.ones(per_pattern),                                                 # credential_request
+        rng.uniform(0.5, 1.0, per_pattern),                                  # link_mismatch
+        rng.uniform(0.6, 1.0, per_pattern),                                  # impersonation_language
+        rng.choice([0.5, 1.0], size=per_pattern, p=[0.4, 0.6]),              # auth_failure
+        rng.uniform(0.1, 0.5, per_pattern),                                  # grammar_quality
+        rng.choice([0.0, 1.0], size=per_pattern, p=[0.5, 0.5]),              # known_bad_url
+    ])
+    # Pattern 2: Auth failure + impersonation (spoofed sender)
+    p2 = np.column_stack([
+        rng.uniform(0.3, 0.8, per_pattern),
+        rng.uniform(0.0, 0.5, per_pattern),
+        rng.uniform(0.6, 1.0, per_pattern),
+        np.ones(per_pattern),
+        np.ones(per_pattern),
+        rng.uniform(0.2, 0.6, per_pattern),
+        rng.choice([0.0, 1.0], size=per_pattern, p=[0.5, 0.5]),
+    ])
+    # Pattern 3: Known bad URL (malware/phishing link)
+    p3 = np.column_stack([
+        rng.uniform(0.4, 1.0, per_pattern),
+        rng.uniform(0.3, 1.0, per_pattern),
+        rng.uniform(0.5, 1.0, per_pattern),
+        rng.uniform(0.2, 0.8, per_pattern),
+        rng.choice([0.0, 0.5, 1.0], size=per_pattern, p=[0.1, 0.3, 0.6]),
+        rng.uniform(0.0, 0.5, per_pattern),
+        np.ones(per_pattern),
+    ])
+    # Pattern 4: High urgency + link mismatch only
+    p4 = np.column_stack([
+        np.ones(per_pattern),
+        rng.uniform(0.0, 0.3, per_pattern),
+        np.ones(per_pattern),
+        rng.uniform(0.3, 0.7, per_pattern),
+        rng.choice([0.0, 0.5], size=per_pattern, p=[0.5, 0.5]),
+        rng.uniform(0.3, 0.8, per_pattern),
+        rng.choice([0.0, 1.0], size=per_pattern, p=[0.6, 0.4]),
+    ])
+    # Pattern 5: Multi-signal moderate (real-world sparse phishing)
+    p5 = np.column_stack([
+        rng.uniform(0.4, 0.8, per_pattern + remainder),
+        rng.uniform(0.4, 0.8, per_pattern + remainder),
+        rng.uniform(0.3, 0.7, per_pattern + remainder),
+        rng.uniform(0.4, 0.8, per_pattern + remainder),
+        rng.choice([0.5, 1.0], size=per_pattern + remainder, p=[0.5, 0.5]),
+        rng.uniform(0.2, 0.6, per_pattern + remainder),
+        rng.choice([0.0, 1.0], size=per_pattern + remainder, p=[0.6, 0.4]),
+    ])
+    return np.vstack([p1, p2, p3, p4, p5])
 
 
 def _generate_safe_samples(rng: np.random.Generator, n: int) -> np.ndarray:
-    """Generate *n* synthetic safe (legitimate) feature vectors.
+    """Generate *n* synthetic safe (legitimate) feature vectors across 4 patterns.
 
     Args:
         rng: NumPy random generator (seeded for reproducibility).
@@ -96,17 +136,89 @@ def _generate_safe_samples(rng: np.random.Generator, n: int) -> np.ndarray:
     Returns:
         2-D array of shape (n, 7), dtype float64.
     """
-    return np.column_stack(
-        [
-            rng.uniform(0.00, 0.20, n),                                      # urgency_language
-            rng.choice([0.0, 1.0], size=n, p=[0.95, 0.05]),                  # credential_request
-            rng.uniform(0.00, 0.15, n),                                      # link_mismatch
-            rng.uniform(0.00, 0.20, n),                                      # impersonation_language
-            rng.choice([0.0, 0.5, 1.0], size=n, p=[0.80, 0.15, 0.05]),      # auth_failure
-            rng.uniform(0.00, 0.15, n),                                      # grammar_quality
-            rng.choice([0.0, 1.0], size=n, p=[0.98, 0.02]),                  # known_bad_url
-        ]
-    )
+    per_pattern = n // 4
+    remainder = n - per_pattern * 4
+
+    # Pattern 1: Fully clean email
+    p1 = np.column_stack([
+        rng.uniform(0.0, 0.1, per_pattern),
+        np.zeros(per_pattern),
+        np.zeros(per_pattern),
+        rng.uniform(0.0, 0.1, per_pattern),
+        np.zeros(per_pattern),
+        rng.uniform(0.0, 0.1, per_pattern),
+        np.zeros(per_pattern),
+    ])
+    # Pattern 2: Legitimate marketing (some urgency is fine)
+    p2 = np.column_stack([
+        rng.uniform(0.1, 0.4, per_pattern),
+        np.zeros(per_pattern),
+        np.zeros(per_pattern),
+        rng.uniform(0.0, 0.2, per_pattern),
+        np.zeros(per_pattern),
+        rng.uniform(0.0, 0.15, per_pattern),
+        np.zeros(per_pattern),
+    ])
+    # Pattern 3: Internal email with links (no auth configured — all-none)
+    p3 = np.column_stack([
+        rng.uniform(0.0, 0.2, per_pattern),
+        np.zeros(per_pattern),
+        rng.uniform(0.0, 0.2, per_pattern),
+        np.zeros(per_pattern),
+        np.full(per_pattern, 0.5),   # all-none auth — but safe context
+        rng.uniform(0.0, 0.1, per_pattern),
+        np.zeros(per_pattern),
+    ])
+    # Pattern 4: Notification email
+    p4 = np.column_stack([
+        rng.uniform(0.0, 0.3, per_pattern + remainder),
+        np.zeros(per_pattern + remainder),
+        np.zeros(per_pattern + remainder),
+        rng.uniform(0.0, 0.15, per_pattern + remainder),
+        rng.choice([0.0, 0.5], size=per_pattern + remainder, p=[0.7, 0.3]),
+        rng.uniform(0.0, 0.1, per_pattern + remainder),
+        np.zeros(per_pattern + remainder),
+    ])
+    return np.vstack([p1, p2, p3, p4])
+
+
+def _generate_suspicious_samples(rng: np.random.Generator, n: int) -> np.ndarray:
+    """Generate *n* borderline suspicious feature vectors.
+
+    These represent emails with weak-to-moderate signals — not clean enough
+    to be safe, not strong enough to be confirmed phishing.  Training on this
+    class teaches the model that auth_failure=0.5 alone is genuinely ambiguous.
+
+    Args:
+        rng: NumPy random generator (seeded for reproducibility).
+        n:   Number of samples to generate.
+
+    Returns:
+        2-D array of shape (n, 7), dtype float64.
+    """
+    half = n // 2
+
+    # Sub-pattern A: Auth-none only (no body signals — empty-body case)
+    pA = np.column_stack([
+        rng.uniform(0.0, 0.2, half),
+        np.zeros(half),
+        rng.uniform(0.0, 0.2, half),
+        rng.uniform(0.0, 0.3, half),
+        np.full(half, 0.5),           # all-none auth
+        rng.uniform(0.0, 0.1, half),
+        np.zeros(half),
+    ])
+    # Sub-pattern B: Moderate multi-signal
+    pB = np.column_stack([
+        rng.uniform(0.2, 0.6, n - half),
+        rng.uniform(0.0, 0.4, n - half),
+        rng.uniform(0.0, 0.4, n - half),
+        rng.uniform(0.1, 0.4, n - half),
+        rng.choice([0.0, 0.5], size=n - half, p=[0.4, 0.6]),
+        rng.uniform(0.1, 0.4, n - half),
+        np.zeros(n - half),
+    ])
+    return np.vstack([pA, pB])
 
 
 # ---------------------------------------------------------------------------
@@ -118,11 +230,18 @@ def main() -> None:
     """Train the RandomForest classifier and save artefacts."""
     rng = np.random.default_rng(_RANDOM_SEED)
 
+    _N_SUSPICIOUS = 400
+
     # ── Build dataset ─────────────────────────────────────────────────────────
     X_phishing = _generate_phishing_samples(rng, _N_SAMPLES)
     X_safe = _generate_safe_samples(rng, _N_SAMPLES)
-    X = np.vstack([X_phishing, X_safe])
-    y = np.array(["phishing"] * _N_SAMPLES + ["safe"] * _N_SAMPLES)
+    X_suspicious = _generate_suspicious_samples(rng, _N_SUSPICIOUS)
+    X = np.vstack([X_phishing, X_safe, X_suspicious])
+    y = np.array(
+        ["phishing"] * _N_SAMPLES
+        + ["safe"] * _N_SAMPLES
+        + ["suspicious"] * _N_SUSPICIOUS
+    )
 
     # ── Train / test split ────────────────────────────────────────────────────
     X_train, X_test, y_train, y_test = train_test_split(
@@ -140,9 +259,12 @@ def main() -> None:
             (
                 "clf",
                 RandomForestClassifier(
-                    n_estimators=100,
+                    n_estimators=200,
                     class_weight="balanced",
+                    min_samples_leaf=2,
+                    max_features="sqrt",
                     random_state=_RANDOM_SEED,
+                    n_jobs=-1,
                 ),
             ),
         ]
@@ -151,9 +273,9 @@ def main() -> None:
 
     # ── Evaluate ──────────────────────────────────────────────────────────────
     y_pred = pipeline.predict(X_test)
-    f1 = float(f1_score(y_test, y_pred, pos_label="phishing"))
-    precision = float(precision_score(y_test, y_pred, pos_label="phishing"))
-    recall = float(recall_score(y_test, y_pred, pos_label="phishing"))
+    f1 = float(f1_score(y_test, y_pred, average="macro"))
+    precision = float(precision_score(y_test, y_pred, average="macro"))
+    recall = float(recall_score(y_test, y_pred, average="macro"))
 
     print(classification_report(y_test, y_pred, digits=4))
     print(

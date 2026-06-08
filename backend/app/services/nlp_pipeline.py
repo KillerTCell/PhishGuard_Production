@@ -135,6 +135,50 @@ _CREDENTIAL_PHRASES: list[str] = [
     "security question",
 ]
 
+# Sender-domain brand detection: keyword → canonical brand name.
+# Intentionally includes shortened/typo variants (paypa catches paypa1, paypa-l).
+_SENDER_BRAND_KEYWORDS: dict[str, str] = {
+    "paypal": "PayPal",
+    "paypa":  "PayPal",
+    "microsoft": "Microsoft",
+    "apple": "Apple",
+    "amazon": "Amazon",
+    "google": "Google",
+    "netflix": "Netflix",
+    "dropbox": "Dropbox",
+    "linkedin": "LinkedIn",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "twitter": "Twitter",
+    "chase": "Chase Bank",
+    "wellsfargo": "Wells Fargo",
+    "bankofamerica": "Bank of America",
+    "citibank": "Citibank",
+    "barclays": "Barclays",
+    "hsbc": "HSBC",
+}
+
+# Canonical registered domains for each brand; any other domain is impersonation.
+_BRAND_CANONICAL_DOMAINS: dict[str, set[str]] = {
+    "PayPal":           {"paypal.com"},
+    "Microsoft":        {"microsoft.com", "live.com", "outlook.com", "hotmail.com", "office.com"},
+    "Apple":            {"apple.com", "icloud.com"},
+    "Amazon":           {"amazon.com"},
+    "Google":           {"google.com", "gmail.com", "googlemail.com"},
+    "Netflix":          {"netflix.com"},
+    "Dropbox":          {"dropbox.com"},
+    "LinkedIn":         {"linkedin.com"},
+    "Facebook":         {"facebook.com"},
+    "Instagram":        {"instagram.com"},
+    "Twitter":          {"twitter.com", "x.com"},
+    "Chase Bank":       {"chase.com"},
+    "Wells Fargo":      {"wellsfargo.com"},
+    "Bank of America":  {"bankofamerica.com"},
+    "Citibank":         {"citi.com", "citibank.com"},
+    "Barclays":         {"barclays.com"},
+    "HSBC":             {"hsbc.com"},
+}
+
 #: 26 (phrase, canonical_brand) pairs for impersonation detection.
 #: Each phrase combines a brand name with an action-request context.
 _IMPERSONATION_PHRASE_BRAND_PAIRS: list[tuple[str, str]] = [
@@ -293,15 +337,21 @@ def _extract_credential_request(body_text: str) -> FeatureResult:
 # ---------------------------------------------------------------------------
 
 
-def _extract_impersonation_language(body_text: str) -> FeatureResult:
-    """Detect brand-name impersonation phrases combined with action requests.
+def _extract_impersonation_language(body_text: str, sender: str = "") -> FeatureResult:
+    """Detect brand-name impersonation via body-text phrases and sender domain.
 
-    Each matched phrase is mapped to a canonical brand name (PayPal,
-    Microsoft, Apple, etc.).  Duplicate brand detections are deduplicated.
-    Scores by how many match events fire, normalised to 2 = maximum.
+    Two detection paths:
+    1. spaCy PhraseMatcher on body_text for brand+action phrases.
+    2. Sender domain analysis — checks if the registered domain contains a
+       known brand keyword but is NOT a canonical brand domain (typosquatting).
+
+    Each detected brand is deduplicated.  Sender-domain hits count as 2 match
+    events to weight them heavily (the sender is the strongest impersonation
+    signal when the body is empty or sparse).
 
     Args:
         body_text: Plain-text email body.
+        sender:    Full sender address (e.g. ``verify@paypa1-secure.net``).
 
     Returns:
         ``FeatureResult`` with deduplicated ``brands_detected`` list.
@@ -321,6 +371,19 @@ def _extract_impersonation_language(body_text: str) -> FeatureResult:
             brands_detected.append(brand)
 
     match_count = len(matches)
+
+    # Sender-domain typosquatting detection
+    if sender and "@" in sender:
+        sender_domain = sender.split("@", 1)[-1].lower()
+        registered = tldextract.extract(sender_domain).registered_domain or sender_domain
+        for keyword, brand in _SENDER_BRAND_KEYWORDS.items():
+            if keyword in sender_domain and brand not in brands_seen:
+                canonical = _BRAND_CANONICAL_DOMAINS.get(brand, set())
+                if registered not in canonical:
+                    brands_seen.add(brand)
+                    brands_detected.append(brand)
+                    match_count += 2  # weight sender-domain hits more heavily
+
     score = min(match_count / 2, 1.0)
 
     return FeatureResult(
@@ -628,6 +691,7 @@ async def extract_all_features(
     spf: str = email_dict.get("spf") or "none"
     dkim: str = email_dict.get("dkim") or "none"
     dmarc: str = email_dict.get("dmarc") or "none"
+    sender: str = email_dict.get("sender") or ""
 
     results: List[FeatureResult] = []
 
@@ -635,7 +699,7 @@ async def extract_all_features(
     sync_extractors: list[tuple[str, Any]] = [
         ("urgency_language",       lambda: _extract_urgency_language(body_text)),
         ("credential_request",     lambda: _extract_credential_request(body_text)),
-        ("impersonation_language", lambda: _extract_impersonation_language(body_text)),
+        ("impersonation_language", lambda: _extract_impersonation_language(body_text, sender)),
         ("grammar_quality",        lambda: _extract_grammar_quality(body_text)),
         ("link_mismatch",          lambda: _extract_link_mismatch(links)),
         ("auth_failure",           lambda: _extract_auth_failure(spf, dkim, dmarc)),

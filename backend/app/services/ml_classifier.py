@@ -122,6 +122,45 @@ def classify(feature_vector: list[float]) -> dict[str, Any]:
 
     risk_score = max(0, min(100, int(round(phishing_prob * 100))))
 
+    # Heuristic overrides — catch obvious phishing the model under-scores.
+    # Applied after the RF so they act as a safety-net floor, not a replacement.
+    urgency       = feature_vector[0]
+    credential    = feature_vector[1]
+    link_mismatch = feature_vector[2]
+    impersonation = feature_vector[3]
+    auth_failure  = feature_vector[4]
+    known_bad     = feature_vector[6]
+
+    # Any auth signal absent or failed → at minimum suspicious
+    if auth_failure >= 0.5:
+        risk_score = max(risk_score, 30)
+
+    # Sender-domain impersonation + any auth issue → high suspicious
+    if auth_failure >= 0.5 and impersonation >= 0.5:
+        risk_score = max(risk_score, 60)
+
+    # Hard auth fail + impersonation → phishing-adjacent
+    if auth_failure >= 1.0 and impersonation >= 0.5:
+        risk_score = max(risk_score, 65)
+
+    # Hard auth fail + urgency + credential → near-certain phishing
+    if auth_failure >= 1.0 and urgency >= 0.5 and credential >= 0.5:
+        risk_score = max(risk_score, 75)
+
+    # Link mismatch + auth failure + urgency → high suspicious
+    if link_mismatch >= 0.5 and auth_failure >= 0.5 and urgency >= 0.5:
+        risk_score = max(risk_score, 70)
+
+    # Three core identity signals together → near-certain phishing
+    if credential >= 0.5 and impersonation >= 0.5 and auth_failure >= 0.5:
+        risk_score = max(risk_score, 85)
+
+    # Known-bad URL → definite phishing
+    if known_bad >= 1.0:
+        risk_score = max(risk_score, 80)
+
+    risk_score = min(risk_score, 100)
+
     if risk_score >= 90:
         severity = "critical"
     elif risk_score >= 80:
@@ -130,5 +169,12 @@ def classify(feature_vector: list[float]) -> dict[str, Any]:
         severity = "medium"
     else:
         severity = "low"
+
+    log.debug(
+        "ml_classify",
+        phishing_prob=round(phishing_prob, 4),
+        risk_score=risk_score,
+        severity=severity,
+    )
 
     return {"risk_score": risk_score, "severity": severity}

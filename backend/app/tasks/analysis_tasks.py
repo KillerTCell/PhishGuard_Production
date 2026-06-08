@@ -539,6 +539,7 @@ def extract_features(self: Any, email_id: str) -> str:
             "spf": email.spf,
             "dkim": email.dkim,
             "dmarc": email.dmarc,
+            "sender": email.sender or "",
         }
 
         # Run async extract_all_features inside a fresh event loop.
