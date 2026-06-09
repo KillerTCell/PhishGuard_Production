@@ -49,10 +49,13 @@ def _extract_text_features(body_text: str) -> list[float]:
         _extract_urgency_language,
     )
 
-    urgency     = _extract_urgency_language(body_text).value
-    credential  = _extract_credential_request(body_text).value
-    impersonation = _extract_impersonation_language(body_text, sender="").value
-    grammar     = _extract_grammar_quality(body_text).value
+    urgency       = _extract_urgency_language(body_text).score_contribution
+    credential    = _extract_credential_request(body_text).score_contribution
+    impersonation = _extract_impersonation_language(body_text, sender="").score_contribution
+    try:
+        grammar = _extract_grammar_quality(body_text).score_contribution
+    except Exception:
+        grammar = 0.0  # textblob NLTK corpus absent; neutral fallback
 
     # Structural signals — unknown without parsed headers; use neutral defaults.
     link_mismatch  = 0.0   # no link data available
@@ -174,11 +177,15 @@ def retrain_model(self: Any, org_id: str) -> dict:
                 if i % 10 == 0:
                     self.update_state(state="PROGRESS", meta={"progress": progress, "f1_before": f1_before})
 
-            X_real = np.array(real_X, dtype=float)
-            y_real = real_y
-
-            # Combine: synthetic base + real samples (real samples weighted via repetition)
-            X_combined = np.vstack([X_base, X_real])
+            if real_X:
+                X_real = np.array(real_X, dtype=float)
+                y_real = real_y
+                # Combine: synthetic base + real samples
+                X_combined = np.vstack([X_base, X_real])
+            else:
+                log.warning("retrain_no_valid_real_samples", org_id=org_id)
+                X_combined = np.array(X_base)
+                y_real = []
             y_combined = list(y_base) + list(y_real)
         else:
             X_combined = np.array(X_base)
