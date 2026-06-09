@@ -2145,6 +2145,10 @@ outline-offset: 2px;
         async function apiFetch(path, options = {}) {
             options.credentials = 'include';
             options.headers = Object.assign(authHeaders(), options.headers || {});
+            // Let the browser set Content-Type (with boundary) for multipart uploads
+            if (options.body instanceof FormData) {
+                delete options.headers['Content-Type'];
+            }
             let resp = await fetch(API_BASE + path, options);
             if (resp.status === 401 && window.authToken) {
                 const refresh = await fetch(`${API_BASE}/auth/refresh`, {
@@ -5558,6 +5562,7 @@ outline-offset: 2px;
             const btn = document.getElementById('tc-upload-btn');
             if (btn) { btn.disabled = true; btn.textContent = 'Uploading…'; }
             let added = 0;
+            let failed = false;
             try {
                 // Upload phishing files
                 if (_tcPhishingFiles.length) {
@@ -5566,20 +5571,24 @@ outline-offset: 2px;
                     _tcPhishingFiles.forEach(f => fd.append('files', f));
                     const resp = await apiFetch('/training/samples/upload', { method: 'POST', body: fd });
                     if (resp.ok) { const d = await resp.json(); added += d.added || 0; }
+                    else { const e = await resp.json().catch(() => ({})); tcShowStatus('tc-upload-status', `Phishing upload failed: ${e.detail || resp.status}`, false); failed = true; }
                 }
                 // Upload safe files
-                if (_tcSafeFiles.length) {
+                if (!failed && _tcSafeFiles.length) {
                     const fd = new FormData();
                     fd.append('label', 'safe');
                     _tcSafeFiles.forEach(f => fd.append('files', f));
                     const resp = await apiFetch('/training/samples/upload', { method: 'POST', body: fd });
                     if (resp.ok) { const d = await resp.json(); added += d.added || 0; }
+                    else { const e = await resp.json().catch(() => ({})); tcShowStatus('tc-upload-status', `Safe upload failed: ${e.detail || resp.status}`, false); failed = true; }
                 }
-                tcShowStatus('tc-upload-status', `${added} sample${added !== 1 ? 's' : ''} added to dataset.`, true);
-                tcClearQueue();
-                await renderTrainingCentre();
-            } catch (_) {
-                tcShowStatus('tc-upload-status', 'Upload failed — please try again.', false);
+                if (!failed) {
+                    tcShowStatus('tc-upload-status', `${added} sample${added !== 1 ? 's' : ''} added to dataset.`, true);
+                    tcClearQueue();
+                    await renderTrainingCentre();
+                }
+            } catch (err) {
+                tcShowStatus('tc-upload-status', `Upload failed — ${err.message || 'please try again.'}`, false);
             } finally {
                 if (btn) { btn.disabled = false; btn.textContent = 'Add all files'; }
             }
