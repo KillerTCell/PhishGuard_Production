@@ -296,6 +296,23 @@ def build_digest_html(
 # ---------------------------------------------------------------------------
 
 
+def score_to_band(score: int) -> dict[str, str]:
+    """Map a 0–100 risk score to its display band (label + badge colours).
+
+    Thresholds mirror :func:`app.schemas.common.score_to_severity` and the
+    frontend ``getRiskBand()`` helper — keep all three in sync.
+    """
+    if score <= 19:
+        return {"label": "Safe", "color": "#16A34A", "bg": "#F0FDF4", "border": "#86EFAC"}
+    if score <= 44:
+        return {"label": "Low Risk", "color": "#65A30D", "bg": "#F7FEE7", "border": "#BEF264"}
+    if score <= 64:
+        return {"label": "Suspicious", "color": "#D97706", "bg": "#FFFBEB", "border": "#FDE68A"}
+    if score <= 84:
+        return {"label": "High Risk", "color": "#DC2626", "bg": "#FEF2F2", "border": "#FECACA"}
+    return {"label": "Critical Threat", "color": "#7C3AED", "bg": "#F5F3FF", "border": "#C4B5FD"}
+
+
 def build_help_request_html(
     recipient_name: str,
     requester_name: str,
@@ -310,7 +327,7 @@ def build_help_request_html(
     Args:
         recipient_name: Full name of the contributor being notified.
         requester_name: Full name of the user asking for help.
-        email:          Email ORM row (reads ``sender``, ``subject``, ``status``).
+        email:          Email ORM row (reads ``sender``, ``subject``).
         risk_score:     0–100 risk score (0 when analysis is pending).
         band_label:     Display label for the risk band (e.g. "High Risk").
         note:           Optional message from the requester (block omitted if empty).
@@ -321,108 +338,152 @@ def build_help_request_html(
     """
     sender = _esc(email.sender or "Unknown sender")
     subject = _esc(email.subject or "(No subject)")
-    status_str = _esc(email.status or "pending")
     recipient = _esc(recipient_name)
     requester = _esc(requester_name)
+    band = score_to_band(risk_score)
 
-    note_block = ""
+    note_section = ""
     if note and note.strip():
-        note_block = f"""
-      <h2 class="section-heading">{requester}'s note:</h2>
-      <div class="note" role="note">"{_esc(note.strip())}"</div>"""
+        note_section = f"""
+        <div style="
+          background:#EFF6FF;border-radius:8px;
+          border:1px solid #BFDBFE;padding:14px 16px;
+          margin-bottom:24px;
+        ">
+          <p style="font-size:12px;font-weight:600;color:#1D4ED8;
+                    margin:0 0 6px">
+            {requester}'s note:
+          </p>
+          <p style="font-size:14px;color:#1E40AF;
+                    line-height:1.5;margin:0;font-style:italic">
+            &quot;{_esc(note.strip())}&quot;
+          </p>
+        </div>"""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>PhishGuard Help Request</title>
-  <style>
-    body {{
-      font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif;
-      font-size: 16px; line-height: 1.6; color: #222222;
-      background-color: #f0f0f0; margin: 0; padding: 0;
-    }}
-    .wrapper {{ max-width: 600px; margin: 32px auto; padding: 0 16px; }}
-    .card {{
-      background: #ffffff; border-radius: 8px;
-      border: 1px solid #dddddd; padding: 36px 40px;
-    }}
-    .logo {{
-      font-size: 1.1rem; font-weight: 700; color: #1a237e;
-      margin: 0 0 24px; letter-spacing: -0.01em;
-    }}
-    h1 {{ font-size: 1.3rem; color: #1a237e; margin: 0 0 16px; font-weight: 700; }}
-    .intro {{ font-size: 0.95rem; color: #444444; margin: 0 0 24px; }}
-    table.meta {{
-      width: 100%; border-collapse: collapse; margin: 0 0 20px;
-      font-size: 0.9rem;
-    }}
-    table.meta th {{
-      text-align: left; padding: 5px 16px 5px 0;
-      color: #555555; font-weight: 600;
-      white-space: nowrap; vertical-align: top; width: 90px;
-    }}
-    table.meta td {{ padding: 5px 0; color: #222222; word-break: break-word; }}
-    h2.section-heading {{
-      font-size: 0.95rem; font-weight: 700; color: #333333; margin: 24px 0 8px;
-    }}
-    .note {{
-      background-color: #f8f8f8; border-left: 4px solid #4f46e5;
-      padding: 12px 16px; border-radius: 0 4px 4px 0;
-      font-size: 0.93rem; color: #333333; margin: 0 0 8px; font-style: italic;
-    }}
-    .btn {{
-      display: inline-block; padding: 12px 22px; margin-top: 20px;
-      border-radius: 5px; font-size: 0.93rem; font-weight: 600;
-      text-decoration: none; line-height: 1;
-      background-color: #4f46e5; color: #ffffff;
-    }}
-    .account-note {{
-      font-size: 0.82rem; color: #666666; margin: 28px 0 0;
-      padding-top: 20px; border-top: 1px solid #eeeeee;
-    }}
-    .footer {{
-      font-size: 0.78rem; color: #888888;
-      text-align: center; margin-top: 20px;
-    }}
-  </style>
 </head>
-<body>
-  <div class="wrapper">
-    <div class="card" role="main">
+<body style="
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  background:#F8FAFC;margin:0;padding:40px 20px;
+">
+  <div style="max-width:560px;margin:0 auto">
 
-      <p class="logo" aria-label="PhishGuard Security Platform">🛡 PhishGuard</p>
+    <!-- Header -->
+    <div style="text-align:center;margin-bottom:32px">
+      <h1 style="font-size:24px;font-weight:700;
+                 color:#4F46E5;margin:0">PhishGuard</h1>
+      <p style="font-size:13px;color:#9CA3AF;margin:6px 0 0">
+        Email Security Platform
+      </p>
+    </div>
 
-      <h1>Hi {recipient},</h1>
-
-      <p class="intro">
-        {requester} from your PhishGuard workspace has flagged an email and
+    <!-- Card -->
+    <div style="
+      background:#ffffff;border-radius:14px;
+      border:1px solid #E5E7EB;padding:32px;
+      box-shadow:0 1px 3px rgba(0,0,0,0.06);
+    " role="main">
+      <h2 style="font-size:20px;font-weight:600;
+                 color:#111827;margin:0 0 8px">
+        Hi {recipient},
+      </h2>
+      <p style="font-size:15px;color:#374151;
+                line-height:1.6;margin:0 0 24px">
+        <strong>{requester}</strong> from your
+        PhishGuard workspace has flagged an email and
         is asking for your analysis.
       </p>
 
-      <h2 class="section-heading">About the email</h2>
-      <table class="meta" role="presentation" aria-label="Email details">
-        <tr><th scope="row">From</th><td>{sender}</td></tr>
-        <tr><th scope="row">Subject</th><td>{subject}</td></tr>
-        <tr><th scope="row">Risk</th><td>{_esc(band_label)} ({risk_score}/100)</td></tr>
-        <tr><th scope="row">Status</th><td>{status_str}</td></tr>
-      </table>
-      {note_block}
+      <!-- Email details table -->
+      <div style="
+        background:#F9FAFB;border-radius:10px;
+        border:1px solid #E5E7EB;padding:16px;
+        margin-bottom:24px;
+      ">
+        <p style="font-size:12px;font-weight:600;
+                  color:#6B7280;text-transform:uppercase;
+                  letter-spacing:0.05em;margin:0 0 12px">
+          About the email
+        </p>
+        <table style="width:100%;border-collapse:collapse" role="presentation"
+               aria-label="Email details">
+          <tr>
+            <td style="font-size:13px;color:#6B7280;
+                       padding:6px 0;width:80px;
+                       vertical-align:top">From</td>
+            <td style="font-size:13px;color:#111827;
+                       padding:6px 0;font-weight:500">
+              {sender}
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:13px;color:#6B7280;
+                       padding:6px 0;vertical-align:top">Subject</td>
+            <td style="font-size:13px;color:#111827;
+                       padding:6px 0;font-weight:500">
+              {subject}
+            </td>
+          </tr>
+          <tr>
+            <td style="font-size:13px;color:#6B7280;
+                       padding:6px 0">Risk</td>
+            <td style="font-size:13px;padding:6px 0">
+              <span style="
+                background:{band['bg']};color:{band['color']};
+                border:1px solid {band['border']};
+                padding:2px 8px;border-radius:20px;
+                font-size:12px;font-weight:600;
+              ">
+                {_esc(band_label)}
+              </span>
+              <span style="color:#9CA3AF;font-size:12px;
+                            margin-left:6px">
+                ({risk_score}/100)
+              </span>
+            </td>
+          </tr>
+        </table>
+      </div>
 
-      <a href="{deep_link}" class="btn" role="button"
-         aria-label="View and analyse this email in PhishGuard">
-        View and analyse this email &rarr;
-      </a>
+      <!-- Note from requester (only if note provided) -->
+      {note_section}
 
-      <p class="account-note" role="note">
-        If you don't have a PhishGuard account, you'll be prompted to create
-        one. Ask {requester} to send you an invitation from the workspace
-        settings.
-      </p>
-
+      <!-- CTA button -->
+      <div style="text-align:center">
+        <a href="{deep_link}" style="
+          display:inline-block;background:#4F46E5;
+          color:#ffffff;text-decoration:none;
+          padding:13px 28px;border-radius:8px;
+          font-size:15px;font-weight:600;
+          font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+          letter-spacing:0.01em;
+        " role="button"
+           aria-label="View and analyse this email in PhishGuard">View and analyse this email &rarr;</a>
+      </div>
     </div>
-    <p class="footer">— PhishGuard</p>
+
+    <!-- Footer -->
+    <div style="
+      text-align:center;margin-top:24px;
+      padding:0 16px;
+    ">
+      <p style="font-size:12px;color:#9CA3AF;
+                line-height:1.6;margin:0">
+        If you don't have a PhishGuard account,
+        you'll be prompted to create one.<br>
+        Ask <strong>{requester}</strong> to send
+        you an invitation from workspace settings.
+      </p>
+      <p style="font-size:12px;color:#D1D5DB;margin:12px 0 0">
+        — PhishGuard
+      </p>
+    </div>
+
   </div>
 </body>
 </html>"""

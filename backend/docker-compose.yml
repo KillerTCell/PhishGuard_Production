@@ -100,6 +100,7 @@ services:
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/ssl:/etc/nginx/ssl:ro
+      - ../PhishGuard.html:/usr/share/nginx/html/PhishGuard.html:ro
       - exports:/mnt/exports:ro
     depends_on:
       - api

@@ -649,7 +649,6 @@ outline-offset: 2px;
                                             <tr class="bg-slate-50/50 border-b border-slate-200 text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                                                 <th scope="col" class="px-5 py-3">Sender &amp; Subject</th>
                                                 <th scope="col" class="px-5 py-3">Risk</th>
-                                                <th scope="col" class="px-5 py-3">Severity</th>
                                                 <th scope="col" class="px-5 py-3 hidden md:table-cell">Reason Preview</th>
                                                 <th scope="col" class="px-5 py-3 text-right">Action</th>
                                             </tr>
@@ -1506,8 +1505,8 @@ outline-offset: 2px;
                     <!-- PAGE: Quarantine — merged Review Queue + Recipient Digest tabs -->
                     <div id="page-quarantine" class="page-section hidden">
                         <div class="mb-6">
-                            <h1 class="text-2xl font-semibold text-slate-900 tracking-tight mb-1">Quarantine</h1>
-                            <p class="text-sm text-slate-500">Review high-risk messages and the recipient digest summary.</p>
+                            <h1 class="text-2xl font-semibold text-slate-900 tracking-tight mb-1">Quarantine Queue</h1>
+                            <p class="text-sm text-slate-500">These emails scored above your phishing threshold and have been held for review. Decide what to do with each one.</p>
                         </div>
 
                         <!-- Tab navigation -->
@@ -1528,6 +1527,26 @@ outline-offset: 2px;
 
                         <!-- Review Queue tab panel -->
                         <div id="quarantine-tab-queue" role="tabpanel" aria-labelledby="quarantine-tab-queue-btn">
+                            <!-- Explanation banner — shown only when the queue has items -->
+                            <div id="quarantine-explainer" style="
+                                display:none;background:#FEF3C7;border:1px solid #FDE68A;
+                                border-radius:10px;padding:12px 16px;
+                                gap:10px;align-items:flex-start;
+                                margin-bottom:20px;
+                            " role="note">
+                                <span style="font-size:18px;flex-shrink:0">⚠️</span>
+                                <div>
+                                    <p style="font-size:13px;font-weight:600;color:#92400E;margin:0 0 3px">
+                                        What is quarantine?
+                                    </p>
+                                    <p style="font-size:12px;color:#78350F;margin:0">
+                                        Emails here were flagged as suspicious by PhishGuard's
+                                        detection engine. They have NOT been delivered.
+                                        Review each one and confirm if it is phishing,
+                                        flag it for more investigation, or release it as safe.
+                                    </p>
+                                </div>
+                            </div>
                             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                                 <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                     <div>
@@ -2287,7 +2306,7 @@ outline-offset: 2px;
                     addNotification({
                         event:     'scan_complete',
                         title:     'Email Analysis Complete',
-                        message:   `${data.sender || 'Email'} — ${data.classification || 'processed'} (${data.risk_score ?? 0}/100)`,
+                        message:   `${data.sender || 'Email'} — ${data.classification || 'processed'} (${getRiskBand(data.risk_score ?? 0).label})`,
                         severity:  data.classification === 'phishing' ? 'danger'
                                  : data.classification === 'suspicious' ? 'warning' : 'success',
                         timestamp: new Date().toISOString(),
@@ -3379,7 +3398,7 @@ outline-offset: 2px;
             const countEl = document.getElementById("quarantine-queue-count");
             if (!tbody) return;
 
-            tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-8 text-center text-slate-500 text-sm">
+            tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-8 text-center text-slate-500 text-sm">
                 <iconify-icon icon="solar:spinner-linear" class="animate-spin text-lg align-middle mr-2"></iconify-icon>Loading...
             </td></tr>`;
 
@@ -3398,11 +3417,14 @@ outline-offset: 2px;
 
             const isAdmin = currentUser?.role === 'Admin';
 
+            const explainer = document.getElementById('quarantine-explainer');
+            if (explainer) explainer.style.display = items.length ? 'flex' : 'none';
+
             if (!items.length) {
                 tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-12 text-center">
-                    <iconify-icon icon="solar:shield-check-linear" class="text-4xl text-emerald-400 block mx-auto mb-3"></iconify-icon>
-                    <p class="text-slate-700 font-medium mb-1">Queue is clear</p>
-                    <p class="text-slate-500 text-xs">No emails are currently quarantined. New threats will appear here automatically.</p>
+                    <div style="width:64px;height:64px;border-radius:50%;background:#F0FDF4;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">✓</div>
+                    <h3 class="text-slate-900 font-semibold mb-1" style="font-size:16px">Queue is clear</h3>
+                    <p class="text-slate-500 text-sm mx-auto" style="max-width:320px">No emails are waiting for review. New threats will appear here automatically when detected.</p>
                 </td></tr>`;
                 return;
             }
@@ -3440,11 +3462,17 @@ outline-offset: 2px;
                     <td class="px-5 py-4">
                         <div class="flex items-center gap-1.5 flex-wrap">
                             <button onclick="event.stopPropagation();confirmPhishing('${safeId}')"
-                                style="padding:6px 14px;background:#ef4444;color:white;border:none;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;margin-right:4px">Confirm Phishing</button>
+                                title="Confirm this is a phishing email"
+                                style="padding:5px 10px;background:transparent;color:#DC2626;border:1px solid #FECACA;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background 0.15s"
+                                onmouseover="this.style.background='#FEF2F2'" onmouseout="this.style.background='transparent'">✕ Phishing</button>
                             <button onclick="event.stopPropagation();markInvestigation('${safeId}')"
-                                style="padding:6px 14px;background:transparent;color:#6b7280;border:1px solid #d1d5db;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;margin-right:4px">Needs Investigation</button>
+                                title="Flag for further investigation"
+                                style="padding:5px 10px;background:transparent;color:#D97706;border:1px solid #FDE68A;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background 0.15s"
+                                onmouseover="this.style.background='#FFFBEB'" onmouseout="this.style.background='transparent'">? Unsure</button>
                             <button onclick="event.stopPropagation();releaseEmail('${safeId}')"
-                                style="padding:6px 14px;background:transparent;color:#16a34a;border:1px solid #16a34a;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;margin-right:4px">Mark as Safe</button>
+                                title="Release as safe email"
+                                style="padding:5px 10px;background:transparent;color:#16A34A;border:1px solid #86EFAC;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;transition:background 0.15s"
+                                onmouseover="this.style.background='#F0FDF4'" onmouseout="this.style.background='transparent'">✓ Safe</button>
                             ${trashBtn}
                         </div>
                     </td>
@@ -3464,11 +3492,13 @@ outline-offset: 2px;
                 row.remove();
                 if (!document.querySelector('.quarantine-row')) {
                     const tbody = document.getElementById('quarantine-queue-body');
-                    if (tbody) tbody.innerHTML = `<tr><td colspan="6" class="px-5 py-12 text-center">
-                        <iconify-icon icon="solar:shield-check-linear" class="text-4xl text-emerald-400 block mx-auto mb-3"></iconify-icon>
-                        <p class="text-slate-700 font-medium mb-1">Queue is clear</p>
-                        <p class="text-slate-500 text-xs">No emails are currently quarantined.</p>
+                    if (tbody) tbody.innerHTML = `<tr><td colspan="5" class="px-5 py-12 text-center">
+                        <div style="width:64px;height:64px;border-radius:50%;background:#F0FDF4;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px">✓</div>
+                        <h3 class="text-slate-900 font-semibold mb-1" style="font-size:16px">Queue is clear</h3>
+                        <p class="text-slate-500 text-sm mx-auto" style="max-width:320px">No emails are waiting for review. New threats will appear here automatically when detected.</p>
                     </td></tr>`;
+                    const explainer = document.getElementById('quarantine-explainer');
+                    if (explainer) explainer.style.display = 'none';
                 }
             }, 260);
         }
@@ -3480,6 +3510,11 @@ outline-offset: 2px;
                 const curr   = parseInt(badge.textContent.replace(/,/g, ''), 10) || 0;
                 const newVal = Math.max(0, curr + delta);
                 badge.textContent = formatNumber(newVal);
+                if (newVal === 0) {
+                    badge.style.background = '#F1F5F9';
+                    badge.style.color      = '#64748B';
+                    badge.style.border     = '1px solid #E2E8F0';
+                }
             }
             if (countEl) {
                 const curr   = parseInt(countEl.textContent, 10) || 0;
@@ -3820,7 +3855,6 @@ outline-offset: 2px;
                             <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
                             <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
                         </td>
-                        <td class="px-5 py-3 text-xs text-slate-400">${email.risk_score != null ? `${email.risk_score}/100` : '—'}</td>
                         <td class="px-5 py-3">
                             ${riskBandPill(email.risk_score)}
                         </td>
@@ -3829,7 +3863,7 @@ outline-offset: 2px;
                             <span class="text-indigo-600 font-medium hover:text-indigo-800 text-xs inline-flex items-center justify-end">Review <iconify-icon icon="solar:arrow-right-linear" class="ml-1"></iconify-icon></span>
                         </td>
                     </tr>
-                `).join("") || `<tr><td colspan="5" class="px-5 py-8 text-center text-slate-500 text-sm">No quarantined emails yet.</td></tr>`;
+                `).join("") || `<tr><td colspan="4" class="px-5 py-8 text-center text-slate-500 text-sm">No quarantined emails yet.</td></tr>`;
 
                 // Tint the sidebar quarantine badge with the highest-risk band colour.
                 const badge = document.getElementById("quarantine-count-badge");
@@ -4891,7 +4925,7 @@ outline-offset: 2px;
                         const fileIdx  = _emlFileQueue.findIndex(f => f.name === item.filename);
                         const statusEl = fileIdx !== -1 ? document.getElementById(`file-status-${fileIdx}`) : null;
                         if (statusEl) {
-                            const score = d.risk_score ?? '?';
+                            const bandLbl = d.risk_score != null ? getRiskBand(d.risk_score).label : 'Pending';
                             const cls   = d.classification || 'unknown';
                             const color = cls === 'phishing'   ? '#dc2626'
                                         : cls === 'suspicious' ? '#d97706'
@@ -4899,7 +4933,7 @@ outline-offset: 2px;
                             const icon  = cls === 'phishing'   ? '⚠'
                                         : cls === 'suspicious' ? '~'
                                         : '✓';
-                            statusEl.innerHTML = `<span style="font-size:11px;color:${color};font-weight:600">${icon} ${capitalize(cls)} (${score})</span>`;
+                            statusEl.innerHTML = `<span style="font-size:11px;color:${color};font-weight:600">${icon} ${capitalize(cls)} (${bandLbl})</span>`;
                         }
                         return null; // remove from pending
                     } catch (_) { return item; }
