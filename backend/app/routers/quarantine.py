@@ -32,14 +32,25 @@ from app.models.email import Email
 from app.models.email_feature import EmailFeature
 from app.models.feedback import Feedback
 from app.schemas.emails import AttachmentMetadata, EmailDetail, EmailFeatureDetail, LinkDetail
-from app.schemas.common import EmailStatus, FeedbackState, Severity
+from app.schemas.common import EmailStatus, FeedbackState, Severity, score_to_severity
 from app.schemas.quarantine import (
     DigestPreviewResponse,
+    QuarantineActionBody,
     QuarantineActionResponse,
     QuarantineListItem,
     QuarantineListResponse,
     SendDigestResponse,
 )
+
+
+def _feedback_detail(body: Optional[QuarantineActionBody]) -> Optional[dict[str, Any]]:
+    """Build the feedback.detail JSONB payload for the contributor review flow.
+
+    Returns None when no body was sent (owner action buttons send no body).
+    """
+    if body is None:
+        return None
+    return {"comment": body.comment or None, "source": "contributor_review"}
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["quarantine"])
@@ -51,14 +62,8 @@ router = APIRouter(tags=["quarantine"])
 
 
 def _severity(risk_score: int) -> Severity:
-    """Map risk_score (0–100) to a Severity enum value."""
-    if risk_score >= 90:
-        return Severity.critical
-    if risk_score >= 80:
-        return Severity.high
-    if risk_score >= 30:
-        return Severity.medium
-    return Severity.low
+    """Map risk_score (0–100) to a 5-band Severity enum value."""
+    return score_to_severity(risk_score)
 
 
 async def _write_audit(
@@ -383,6 +388,7 @@ async def get_digest_preview(
 async def confirm_phishing(
     email_id: uuid.UUID,
     request: Request,
+    body: Optional[QuarantineActionBody] = None,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -390,6 +396,7 @@ async def confirm_phishing(
     """Mark a quarantined email as confirmed phishing.
 
     Updates email.status, inserts feedback, commits, publishes SSE.  UC-03 step 5.
+    Optional body carries a contributor review comment (Change 4).
     """
     email = (
         await db.execute(
@@ -406,6 +413,7 @@ async def confirm_phishing(
             user_id=current_user.id,
             label="phishing",
             source="dashboard",
+            detail=_feedback_detail(body),
             created_at=datetime.now(timezone.utc),
         )
     )
@@ -440,6 +448,7 @@ async def confirm_phishing(
 async def release_email(
     email_id: uuid.UUID,
     request: Request,
+    body: Optional[QuarantineActionBody] = None,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -460,6 +469,7 @@ async def release_email(
             user_id=current_user.id,
             label="safe",
             source="dashboard",
+            detail=_feedback_detail(body),
             created_at=datetime.now(timezone.utc),
         )
     )
@@ -494,6 +504,7 @@ async def release_email(
 async def flag_for_investigation(
     email_id: uuid.UUID,
     request: Request,
+    body: Optional[QuarantineActionBody] = None,
     current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
     redis: aioredis.Redis = Depends(get_redis),
@@ -513,6 +524,7 @@ async def flag_for_investigation(
             user_id=current_user.id,
             label="needs_investigation",
             source="dashboard",
+            detail=_feedback_detail(body),
             created_at=datetime.now(timezone.utc),
         )
     )

@@ -6,7 +6,9 @@ Covers Section 4.7 (FR-07, Architecture ⑤):
 """
 from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Optional
+
+from pydantic import BaseModel, Field
 
 from app.schemas.common import FeedbackLabel
 
@@ -24,6 +26,7 @@ class FeedbackRequest(BaseModel):
     """
 
     label: FeedbackLabel
+    comment: Optional[str] = Field(None, max_length=1000)
 
 
 # ---------------------------------------------------------------------------

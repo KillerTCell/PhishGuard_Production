@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     FORWARDING_DOMAIN: str = "phishguard.app"
     """Domain used to build forwarding inbox slugs (scan+<slug>@<domain>)."""
 
+    FRONTEND_URL: str = "https://localhost"
+    """Base URL of the frontend — used to build deep links in outbound emails
+    (e.g. the help-request 'View and analyse this email' link)."""
+
     DEMO_SAMPLE_EML: str = ""
     """Raw .eml content for the 'Load Demo Sample' button (UI Figure 8).
     Paste as a single escaped string (newlines as \\n)."""

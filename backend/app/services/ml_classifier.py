@@ -46,6 +46,7 @@ _MODEL_PATH: Path = Path(os.environ["PHISHGUARD_MODEL_PATH"]) if "PHISHGUARD_MOD
 # Re-export from canonical location so existing imports remain unbroken.
 # ``as ModelNotFoundError`` makes the re-export explicit so mypy --strict sees it.
 from app.core.exceptions import ModelNotFoundError as ModelNotFoundError  # noqa: E402
+from app.schemas.common import score_to_severity  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -99,9 +100,9 @@ def classify(feature_vector: list[float]) -> dict[str, Any]:
         Dictionary with keys:
 
         - ``risk_score`` (int): 0-100 phishing probability score.
-        - ``severity`` (str): ``'critical'`` | ``'high'`` | ``'medium'`` |
-          ``'low'`` — derived from risk_score using the same thresholds as
-          :func:`~app.routers.emails._severity`.
+        - ``severity`` (str): ``'safe'`` | ``'low'`` | ``'suspicious'`` |
+          ``'high'`` | ``'critical'`` — derived from risk_score via
+          :func:`~app.schemas.common.score_to_severity`.
 
     Raises:
         ModelNotFoundError: Propagated from :func:`get_model` when the model
@@ -161,14 +162,7 @@ def classify(feature_vector: list[float]) -> dict[str, Any]:
 
     risk_score = min(risk_score, 100)
 
-    if risk_score >= 90:
-        severity = "critical"
-    elif risk_score >= 80:
-        severity = "high"
-    elif risk_score >= 30:
-        severity = "medium"
-    else:
-        severity = "low"
+    severity = score_to_severity(risk_score).value
 
     log.debug(
         "ml_classify",

@@ -130,7 +130,7 @@ async def compute_insights(
                 type=InsightType.alert,
                 title="Analysis failures detected",
                 message="Some emails failed to process. Check the email list for details.",
-                severity=Severity.medium,
+                severity=Severity.suspicious,
             )
         )
 

@@ -55,6 +55,11 @@ async def submit_feedback(
         user_id=current_user.id,
         label=body.label.value,
         source="dashboard",
+        detail=(
+            {"comment": body.comment, "source": "contributor_review"}
+            if body.comment
+            else None
+        ),
         created_at=datetime.now(timezone.utc),
     )
     db.add(feedback)

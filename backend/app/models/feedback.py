@@ -13,7 +13,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -73,6 +73,10 @@ class Feedback(Base):  # type: ignore[misc]  # SQLAlchemy declarative_base() ret
     )
     label: Mapped[str] = mapped_column(String(25), nullable=False)
     source: Mapped[str] = mapped_column(String(20), nullable=False)
+    # Optional structured context — the contributor review flow stores
+    # {"comment": "<reasoning>", "source": "contributor_review"} here.
+    # none_as_null: Python None → SQL NULL (not JSON null).
+    detail: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

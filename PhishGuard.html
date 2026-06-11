@@ -77,6 +77,16 @@ outline-offset: 2px;
   0%, 100% { transform: scale(1); }
   50%       { transform: scale(1.08); }
 }
+/* Contributor opinion radio cards (Change 4) */
+.opinion-option { display:flex; align-items:flex-start; gap:10px; padding:12px; border:1px solid #E5E7EB; border-radius:10px; background:white; cursor:pointer; transition:all 0.15s ease; }
+.opinion-option:hover { border-color:#C7D2FE; }
+.opinion-option input { margin-top:3px; accent-color:#4F46E5; flex-shrink:0; }
+.opinion-option .opinion-icon { font-size:16px; line-height:1.4; flex-shrink:0; }
+.opinion-option strong { font-size:13px; color:#111827; display:block; }
+.opinion-option p { margin:2px 0 0; font-size:12px; color:#6B7280; line-height:1.4; }
+.opinion-option.sel-phishing  { background:#FEF2F2; border-color:#FCA5A5; }
+.opinion-option.sel-uncertain { background:#FFFBEB; border-color:#FCD34D; }
+.opinion-option.sel-safe      { background:#F0FDF4; border-color:#86EFAC; }
 </style></head>
 <body class="bg-slate-50 text-slate-800 antialiased h-screen flex overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
 
@@ -370,10 +380,10 @@ outline-offset: 2px;
                     </nav>
                 </div>
 
-                <!-- Admin Section — Admin-only; entire section hidden for Analyst via updateRoleBasedNavigation() -->
+                <!-- Workspace Section — owner-only; entire section hidden for contributors via updateRoleBasedNavigation() -->
                 <div id="nav-system-section">
-                    <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">Admin</h3>
-                    <nav class="space-y-1" aria-label="Admin navigation">
+                    <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 px-3">Workspace</h3>
+                    <nav class="space-y-1" aria-label="Workspace navigation">
                         <button id="nav-settings" type="button" data-target="settings" onclick="navigate('settings')" class="nav-btn hidden w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
                             <iconify-icon icon="solar:settings-linear" class="mr-3 text-lg nav-icon text-slate-400" stroke-width="1.5"></iconify-icon>
                             Settings
@@ -466,14 +476,31 @@ outline-offset: 2px;
                       </div>
                     </div>
 
-                    <!-- Analyst role banner — shown after a fresh signup logs in for the first time. -->
+                    <!-- Help request modal — owner/contributor asks workspace members for analysis help -->
+                    <div id="help-request-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;align-items:center;justify-content:center" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+                        <div style="background:white;border-radius:16px;padding:28px;max-width:460px;width:90%;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);animation:modalIn 0.15s ease-out">
+                            <h3 id="help-modal-title" style="font-size:17px;font-weight:600;color:#111827;margin-bottom:4px">Request Analysis Help</h3>
+                            <p style="font-size:13px;color:#6B7280;margin-bottom:16px">Select contributors to notify:</p>
+                            <div id="help-user-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:220px;overflow-y:auto"></div>
+                            <label for="help-note" style="display:block;font-size:13px;font-weight:500;color:#374151;margin-bottom:6px">Add a note (optional):</label>
+                            <textarea id="help-note" maxlength="500"
+                                placeholder="I'm not sure about this one — could you take a look?"
+                                style="width:100%;min-height:72px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+                            <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:16px">
+                                <button type="button" onclick="closeHelpRequestModal()" style="padding:10px 16px;border-radius:8px;border:1px solid #E5E7EB;background:white;font-size:14px;font-weight:500;cursor:pointer;color:#374151">Cancel</button>
+                                <button type="button" id="help-send-btn" onclick="submitHelpRequest()" style="padding:10px 16px;border-radius:8px;border:none;background:#4F46E5;color:white;font-size:14px;font-weight:600;cursor:pointer">Send help request</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Contributor role banner — shown after a fresh signup logs in for the first time. -->
                     <div id="role-banner" class="hidden mb-6 flex items-start gap-3 bg-indigo-50/80 border border-indigo-100 rounded-2xl px-4 sm:px-5 py-4 shadow-sm" role="status" aria-live="polite">
                         <div class="w-9 h-9 rounded-full bg-white border border-indigo-100 flex items-center justify-center text-indigo-600 shrink-0 shadow-sm">
                             <iconify-icon icon="solar:shield-user-linear" class="text-lg" stroke-width="1.5" aria-hidden="true"></iconify-icon>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-sm font-semibold text-indigo-900">Welcome, <span id="role-banner-name">Analyst</span> — you're signed in with Analyst access.</p>
-                            <p class="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">You have access to email review, analysis tools, the forwarding inbox, and the AI assistant. Settings and User Management are available to administrators.</p>
+                            <p class="text-sm font-semibold text-indigo-900">Welcome, <span id="role-banner-name">Contributor</span> — you're signed in with Contributor access.</p>
+                            <p class="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">You have access to email review, analysis tools, the forwarding inbox, and the AI assistant. Settings and User Management are available to workspace owners.</p>
                         </div>
                         <button type="button" onclick="dismissRoleBanner()" aria-label="Dismiss welcome banner" class="text-indigo-400 hover:text-indigo-700 transition-colors p-1 -m-1 shrink-0">
                             <iconify-icon icon="solar:close-circle-linear" class="text-xl" stroke-width="1.5" aria-hidden="true"></iconify-icon>
@@ -672,14 +699,14 @@ outline-offset: 2px;
 
                             <!-- Analyst Workflow -->
                             <div>
-                                <h3 class="text-lg font-semibold tracking-tight text-slate-900 mb-4">Analyst Workflow</h3>
+                                <h3 class="text-lg font-semibold tracking-tight text-slate-900 mb-4">Contributor Workflow</h3>
                                 <div class="bg-gradient-to-b from-indigo-50 to-white rounded-2xl border border-indigo-100 p-6 shadow-sm h-[calc(100%-2.5rem)] flex flex-col relative overflow-hidden">
                                     <div class="absolute -right-6 -top-6 text-indigo-100 opacity-50 pointer-events-none">
                                         <iconify-icon icon="solar:play-circle-linear" class="text-9xl"></iconify-icon>
                                     </div>
                                     <p class="text-xs text-indigo-600/80 font-medium mb-5 uppercase tracking-wider relative z-10">Suggested Path</p>
                                     <ul class="space-y-3 relative z-10 text-sm font-medium text-slate-700 flex-1">
-                                        <li class="flex items-center"><span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] mr-3 shrink-0">1</span> Login as Admin</li>
+                                        <li class="flex items-center"><span class="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] mr-3 shrink-0">1</span> Login as Owner</li>
                                         <li class="flex items-center"><span class="w-5 h-5 rounded-full border border-indigo-200 bg-white text-indigo-600 flex items-center justify-center text-[10px] mr-3 shrink-0">2</span> Review dashboard</li>
                                         <li class="flex items-center cursor-pointer hover:text-indigo-600 transition-colors" onclick="navigate('quarantine')"><span class="w-5 h-5 rounded-full border border-indigo-200 bg-white text-indigo-600 flex items-center justify-center text-[10px] mr-3 shrink-0">3</span> Open quarantine</li>
                                         <li class="flex items-center cursor-pointer hover:text-indigo-600 transition-colors" onclick="navigate('email-detail')"><span class="w-5 h-5 rounded-full border border-indigo-200 bg-white text-indigo-600 flex items-center justify-center text-[10px] mr-3 shrink-0">4</span> Analyse sample email</li>
@@ -781,7 +808,7 @@ outline-offset: 2px;
                                 <h1 class="text-2xl font-semibold text-slate-900 tracking-tight mb-1">User Management</h1>
                                 <p class="text-sm text-slate-500">Manage frontend user records for testing role-based access patterns.</p>
                             </div>
-                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 self-start sm:self-auto">Admin only</span>
+                            <span class="inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-100 self-start sm:self-auto">Owner only</span>
                         </div>
 
                         <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
@@ -790,11 +817,11 @@ outline-offset: 2px;
                                 <p id="user-stat-total" class="text-2xl font-semibold text-slate-900 mt-1">0</p>
                             </div>
                             <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                                <p class="text-xs font-medium text-slate-500">Admins</p>
+                                <p class="text-xs font-medium text-slate-500">Owners</p>
                                 <p id="user-stat-admins" class="text-2xl font-semibold text-indigo-600 mt-1">0</p>
                             </div>
                             <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
-                                <p class="text-xs font-medium text-slate-500">Analysts</p>
+                                <p class="text-xs font-medium text-slate-500">Contributors</p>
                                 <p id="user-stat-analysts" class="text-2xl font-semibold text-slate-900 mt-1">0</p>
                             </div>
                             <div class="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
@@ -819,8 +846,9 @@ outline-offset: 2px;
                                         <label for="invite-role" class="block text-sm font-medium text-slate-700 mb-1.5">Role</label>
                                         <select id="invite-role" aria-describedby="user-management-status" class="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900">
                                             <option value="">Select role</option>
-                                            <option value="Admin">Admin</option>
-                                            <option value="Analyst">Analyst</option>
+                                            <!-- Display labels only — option values stay Admin/Analyst (lowercased for the API) -->
+                                            <option value="Admin">Owner</option>
+                                            <option value="Analyst">Contributor</option>
                                         </select>
                                     </div>
                                     <button type="submit" class="w-full bg-slate-900 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-slate-800 transition-colors shadow-sm h-11">
@@ -861,8 +889,8 @@ outline-offset: 2px;
                                         <thead>
                                             <tr class="bg-slate-50/50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500 font-semibold">
                                                 <th scope="col" class="px-5 py-3">Permission</th>
-                                                <th scope="col" class="px-5 py-3">Admin</th>
-                                                <th scope="col" class="px-5 py-3">Analyst</th>
+                                                <th scope="col" class="px-5 py-3">Owner</th>
+                                                <th scope="col" class="px-5 py-3">Contributor</th>
                                             </tr>
                                         </thead>
                                         <tbody class="divide-y divide-slate-100 text-sm">
@@ -888,7 +916,7 @@ outline-offset: 2px;
 
                             <section class="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                                 <div class="px-5 py-3 border-b border-slate-100">
-                                    <h2 class="text-lg font-semibold tracking-tight text-slate-900">Recent admin actions</h2>
+                                    <h2 class="text-lg font-semibold tracking-tight text-slate-900">Recent owner actions</h2>
                                 </div>
                                 <div id="admin-actions-log" class="divide-y divide-slate-100"></div>
                             </section>
@@ -950,7 +978,7 @@ outline-offset: 2px;
                                             </th>
                                             <th scope="col" class="px-6 py-4">Received</th>
                                             <th scope="col" class="px-6 py-4">Sender &amp; Subject</th>
-                                            <th scope="col" class="px-6 py-4">Risk Score</th>
+                                            <th scope="col" class="px-6 py-4">Risk</th>
                                             <th scope="col" class="px-6 py-4">Status</th>
                                             <th scope="col" class="px-6 py-4 text-right">Action</th>
                                         </tr>
@@ -1056,12 +1084,11 @@ outline-offset: 2px;
                                 <!-- Score Card -->
                                 <div id="detail-score-card" class="bg-white rounded-2xl border border-rose-200 shadow-sm overflow-hidden">
                                     <div id="detail-score-header" class="bg-rose-500 text-white p-6 text-center">
-                                        <h3 class="text-rose-100 text-sm font-medium uppercase tracking-wider mb-2">Risk Assessment</h3>
-                                        <div class="flex items-baseline justify-center font-bold">
-                                            <span id="detail-risk-score" class="text-6xl tracking-tight">0</span>
-                                            <span class="text-2xl text-rose-200 ml-1">/100</span>
-                                        </div>
-                                        <p id="detail-risk-label" class="mt-2 text-rose-100 font-medium">Loading</p>
+                                        <h3 class="text-sm font-medium uppercase tracking-wider mb-2" style="color:rgba(255,255,255,0.8)">Risk Assessment</h3>
+                                        <div id="detail-band-icon" style="font-size:32px;line-height:1;margin-bottom:6px" aria-hidden="true">🛡</div>
+                                        <div id="detail-band-label" class="text-3xl font-bold tracking-tight">Loading</div>
+                                        <p id="detail-risk-score-small" class="mt-1 text-sm" style="color:rgba(255,255,255,0.75)">Score: —/100</p>
+                                        <p id="detail-band-action" class="mt-2 text-sm font-medium" style="color:rgba(255,255,255,0.92)"></p>
                                     </div>
                                     <div class="p-6">
                                         <h4 class="text-xs font-semibold text-slate-900 uppercase tracking-wider mb-3">Model Explanation</h4>
@@ -1070,21 +1097,42 @@ outline-offset: 2px;
                                     </div>
                                 </div>
 
-                                <!-- Action Panel -->
+                                <!-- Action Panel — owner sees decision buttons (with contributor
+                                     opinions summary above); contributors see the opinion panel. -->
                                 <div class="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                                    <h3 class="text-sm font-semibold text-slate-900 mb-4">Analyst Actions</h3>
-                                    <div class="space-y-3">
-                                        <button type="button" onclick="handleAction('confirmed')" class="w-full h-11 bg-rose-600 text-white font-medium rounded-xl shadow-sm hover:bg-rose-700 transition-colors text-sm flex justify-center items-center">
-                                            <iconify-icon icon="solar:check-read-linear" class="mr-2 text-lg"></iconify-icon> Confirm Phishing
-                                        </button>
-                                        <button type="button" onclick="handleAction('investigate')" class="w-full h-11 bg-white text-slate-700 border border-slate-200 font-medium rounded-xl hover:bg-slate-50 transition-colors text-sm flex justify-center items-center">
-                                            <iconify-icon icon="solar:magnifer-linear" class="mr-2 text-lg"></iconify-icon> Needs Investigation
-                                        </button>
-                                        <button type="button" onclick="handleAction('safe')" class="w-full h-11 bg-white text-emerald-600 border border-emerald-200 font-medium rounded-xl hover:bg-emerald-50 transition-colors text-sm flex justify-center items-center">
-                                            <iconify-icon icon="solar:shield-check-linear" class="mr-2 text-lg"></iconify-icon> Mark as Safe (Release)
+                                    <!-- Contributor opinions summary (owner view) — filled by renderDetailActionPanels() -->
+                                    <div id="contributor-opinions-summary"></div>
+
+                                    <div id="owner-action-panel">
+                                        <h3 class="text-sm font-semibold text-slate-900 mb-4">Owner Actions</h3>
+                                        <div class="space-y-3">
+                                            <button type="button" onclick="handleAction('confirmed')" class="w-full h-11 bg-rose-600 text-white font-medium rounded-xl shadow-sm hover:bg-rose-700 transition-colors text-sm flex justify-center items-center">
+                                                <iconify-icon icon="solar:check-read-linear" class="mr-2 text-lg"></iconify-icon> Confirm Phishing
+                                            </button>
+                                            <button type="button" onclick="handleAction('investigate')" class="w-full h-11 bg-white text-slate-700 border border-slate-200 font-medium rounded-xl hover:bg-slate-50 transition-colors text-sm flex justify-center items-center">
+                                                <iconify-icon icon="solar:magnifer-linear" class="mr-2 text-lg"></iconify-icon> Needs Investigation
+                                            </button>
+                                            <button type="button" onclick="handleAction('safe')" class="w-full h-11 bg-white text-emerald-600 border border-emerald-200 font-medium rounded-xl hover:bg-emerald-50 transition-colors text-sm flex justify-center items-center">
+                                                <iconify-icon icon="solar:shield-check-linear" class="mr-2 text-lg"></iconify-icon> Mark as Safe (Release)
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <!-- Contributor opinion panel — filled by renderDetailActionPanels() -->
+                                    <div id="contributor-opinion-panel"></div>
+
+                                    <p id="detail-action-status" class="hidden text-xs text-slate-500 mt-3" aria-live="polite"></p>
+
+                                    <!-- Request help — secondary action, visible to all roles -->
+                                    <div class="mt-4 pt-4 border-t border-slate-100">
+                                        <button type="button" id="request-help-btn" onclick="openHelpRequestModal(currentEmailId)"
+                                            class="w-full h-11 bg-white text-indigo-600 border border-indigo-200 font-medium rounded-xl hover:bg-indigo-50 transition-colors text-sm flex justify-center items-center">
+                                            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2" aria-hidden="true">
+                                                <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/>
+                                            </svg>
+                                            Request help
                                         </button>
                                     </div>
-                                    <p id="detail-action-status" class="hidden text-xs text-slate-500 mt-3" aria-live="polite"></p>
                                 </div>
                             </div>
 
@@ -1147,17 +1195,8 @@ outline-offset: 2px;
                                         <p id="ma-message" class="hidden text-xs text-rose-600 font-medium mt-2" aria-live="polite"></p>
                                     </div>
 
-                                    <!-- Inline result card — revealed after analysis completes -->
-                                    <!-- TODO: Backend — bind score, title, description from POST /api/analysis/manual response -->
-                                    <div id="ma-result" class="hidden bg-rose-50 border border-rose-200 rounded-xl p-4 flex items-start" aria-live="polite">
-                                        <div class="w-8 h-8 bg-white rounded-full flex items-center justify-center text-rose-600 border border-rose-100 shrink-0">
-                                            <span id="ma-result-score" class="font-bold text-sm">0</span>
-                                        </div>
-                                        <div class="ml-3">
-                                            <h4 id="ma-result-title" class="text-sm font-semibold text-rose-900">Analysis Result</h4>
-                                            <p id="ma-result-description" class="text-xs text-rose-700 mt-1"></p>
-                                        </div>
-                                    </div>
+                                    <!-- Inline result card — band label + icon + action + CTA, rendered by analyzeEmail() -->
+                                    <div id="ma-result" class="hidden rounded-xl" aria-live="polite"></div>
 
                                     <!-- Form footer: training opt-in toggle + submit -->
                                     <div class="flex flex-col sm:flex-row sm:items-center justify-between pt-3 border-t border-slate-100 gap-3">
@@ -1493,7 +1532,7 @@ outline-offset: 2px;
                                 <div class="px-5 sm:px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                                     <div>
                                         <h2 class="text-base font-semibold text-slate-900">High-risk messages</h2>
-                                        <p class="text-xs text-slate-500 mt-0.5">Confirm phishing, release to inbox, or flag for investigation. Admin can delete permanently.</p>
+                                        <p class="text-xs text-slate-500 mt-0.5">Confirm phishing, release to inbox, or flag for investigation. Owner can delete permanently.</p>
                                     </div>
                                     <span id="quarantine-queue-count" class="inline-flex items-center self-start sm:self-auto bg-rose-50 text-rose-700 border border-rose-100 text-xs font-semibold px-2.5 py-1 rounded-full">0 in queue</span>
                                 </div>
@@ -2825,7 +2864,7 @@ outline-offset: 2px;
             if (mode === "login") {
                 document.getElementById("section-login").classList.remove("hidden");
                 heading.textContent    = "Welcome back";
-                subheading.textContent = "Sign in to the analyst dashboard";
+                subheading.textContent = "Sign in to your workspace dashboard";
                 document.getElementById("login-email")?.focus();
             } else if (mode === "signup") {
                 document.getElementById("section-signup").classList.remove("hidden");
@@ -2881,6 +2920,60 @@ outline-offset: 2px;
             if (score >= 60) return { border: "border-orange-200", header: "bg-orange-500", text: "text-orange-100", muted: "text-orange-200" };
             if (score >= 30) return { border: "border-amber-200", header: "bg-amber-500", text: "text-amber-100", muted: "text-amber-200" };
             return { border: "border-emerald-200", header: "bg-emerald-500", text: "text-emerald-100", muted: "text-emerald-200" };
+        }
+
+        // ── 5-band risk system ──────────────────────────────────────────
+        // Single source of truth for risk display. The backend still stores
+        // the 0–100 score — only the display layer uses bands.
+
+        function getRiskBand(score) {
+            if (score <= 19) return {
+                label: 'Safe', color: '#16A34A', bg: '#F0FDF4',
+                border: '#86EFAC', icon: '✓',
+                action: 'No action required',
+                cta: null, ctaClass: null
+            };
+            if (score <= 44) return {
+                label: 'Low Risk', color: '#65A30D', bg: '#F7FEE7',
+                border: '#BEF264', icon: 'ℹ',
+                action: 'Monitor — unlikely phishing',
+                cta: 'Mark as reviewed', ctaClass: 'cta-low'
+            };
+            if (score <= 64) return {
+                label: 'Suspicious', color: '#D97706', bg: '#FFFBEB',
+                border: '#FDE68A', icon: '⚠',
+                action: 'Needs investigation — do not click links',
+                cta: 'Flag for review', ctaClass: 'cta-suspicious'
+            };
+            if (score <= 84) return {
+                label: 'High Risk', color: '#DC2626', bg: '#FEF2F2',
+                border: '#FECACA', icon: '✕',
+                action: 'Likely phishing — quarantine recommended',
+                cta: 'Confirm phishing', ctaClass: 'cta-high'
+            };
+            return {
+                label: 'Critical Threat', color: '#7C3AED', bg: '#F5F3FF',
+                border: '#C4B5FD', icon: '☠',
+                action: 'Critical — auto-quarantined',
+                cta: 'Confirm & report', ctaClass: 'cta-critical'
+            };
+        }
+
+        // Coloured pill badge for list rows. Pending analysis → grey pill.
+        function riskBandPill(score) {
+            if (score == null) {
+                return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb">Pending</span>`;
+            }
+            const b = getRiskBand(score);
+            return `<span title="Score: ${score}/100" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${b.bg};color:${b.color};border:1px solid ${b.border};white-space:nowrap">${b.icon} ${b.label}</span>`;
+        }
+
+        // Display-only role label mapping — backend role values stay 'admin'/'analyst'.
+        function roleDisplay(role) {
+            const r = String(role || '').toLowerCase();
+            if (r === 'admin') return 'Owner';
+            if (r === 'analyst') return 'Contributor';
+            return capitalize(role);
         }
 
         // =====================================================
@@ -2978,6 +3071,7 @@ outline-offset: 2px;
             openAppShell();
             navigate("home");
             maybeShowRoleBanner();
+            openPendingEmailIfAny();
         }
 
         // ─── Sign Up ──────────────────────────────────────────────────
@@ -2989,7 +3083,7 @@ outline-offset: 2px;
             // PhishGuard uses invite-only account creation.
             // Admins invite team members via the User Management page.
             showAuthMessage(
-                "Accounts are created by invitation. Ask your PhishGuard administrator to send you an invite.",
+                "Accounts are created by invitation. Ask your PhishGuard workspace owner to send you an invite.",
                 "info"
             );
             switchAuthMode("login");
@@ -3080,7 +3174,8 @@ outline-offset: 2px;
                     startInactivityTracking();
                     openAppShell();
                     navigate("home");
-                    showAppMessage(`Welcome to PhishGuard! Your account has been created as ${role}.`, "success");
+                    showAppMessage(`Welcome to PhishGuard! Your account has been created as ${roleDisplay(role)}.`, "success");
+                    openPendingEmailIfAny();
 
                 } else if (resp.status === 400 || resp.status === 409 || resp.status === 422) {
                     // Show the exact backend error — Pydantic validation errors have
@@ -3225,7 +3320,7 @@ outline-offset: 2px;
 
             const banner = document.getElementById("role-banner");
             if (!banner) return;
-            setText("role-banner-name", currentUser.name || "Analyst");
+            setText("role-banner-name", currentUser.name || "Contributor");
             banner.classList.remove("hidden");
         }
 
@@ -3337,9 +3432,7 @@ outline-offset: 2px;
                         <div class="text-xs text-slate-500 truncate mt-0.5">${escapeHtml(email.top_reason || '')}</div>
                     </td>
                     <td class="px-5 py-4 cursor-pointer" onclick="openEmailDetail('${safeId}')">
-                        <div class="flex items-center font-semibold ${getRiskTextClass(email.risk_score ?? 0)}">
-                            ${email.risk_score ?? '—'}<span class="text-slate-400 text-xs font-normal ml-1">/100</span>
-                        </div>
+                        ${riskBandPill(email.risk_score)}
                     </td>
                     <td class="px-5 py-4 text-slate-500 text-sm whitespace-nowrap cursor-pointer" onclick="openEmailDetail('${safeId}')">
                         ${escapeHtml(formatReceived(email.received_at))}
@@ -3521,7 +3614,7 @@ outline-offset: 2px;
 
             // Frontend RBAC guard. Production must also enforce role checks on the backend.
             if (ADMIN_ONLY_PAGES.includes(pageId) && currentUser.role !== "Admin") {
-                showAppMessage(`${ADMIN_ONLY_LABELS[pageId]} is available to Admin users only.`);
+                showAppMessage(`${ADMIN_ONLY_LABELS[pageId]} is available to workspace owners only.`);
                 pageId = "home";
             }
 
@@ -3727,9 +3820,9 @@ outline-offset: 2px;
                             <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
                             <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
                         </td>
-                        <td class="px-5 py-3 font-semibold ${getRiskTextClass(email.risk_score ?? 0)}">${email.risk_score ?? '—'}</td>
+                        <td class="px-5 py-3 text-xs text-slate-400">${email.risk_score != null ? `${email.risk_score}/100` : '—'}</td>
                         <td class="px-5 py-3">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${getSeverityBadgeClass(capitalize(email.severity || 'low'))}">${capitalize(email.severity || 'low')}</span>
+                            ${riskBandPill(email.risk_score)}
                         </td>
                         <td class="px-5 py-3 text-slate-500 text-xs hidden md:table-cell truncate max-w-xs">${escapeHtml(email.top_reason || '')}</td>
                         <td class="px-5 py-3 text-right">
@@ -3737,6 +3830,16 @@ outline-offset: 2px;
                         </td>
                     </tr>
                 `).join("") || `<tr><td colspan="5" class="px-5 py-8 text-center text-slate-500 text-sm">No quarantined emails yet.</td></tr>`;
+
+                // Tint the sidebar quarantine badge with the highest-risk band colour.
+                const badge = document.getElementById("quarantine-count-badge");
+                if (badge && rows.length) {
+                    const maxScore = Math.max(...rows.map(e => e.risk_score ?? 0));
+                    const topBand  = getRiskBand(maxScore);
+                    badge.style.background = topBand.bg;
+                    badge.style.color      = topBand.color;
+                    badge.style.border     = `1px solid ${topBand.border}`;
+                }
             }
         }
 
@@ -3829,9 +3932,7 @@ outline-offset: 2px;
                             <div class="text-slate-500 truncate text-xs mt-0.5 email-subject">${escapeHtml(email.subject || '(no subject)')}</div>
                         </td>
                         <td class="px-6 py-4">
-                            <div class="flex items-center font-semibold ${getRiskTextClass(score)}">
-                                ${score}<span class="text-slate-400 text-xs font-normal ml-1">/100</span>
-                            </div>
+                            ${riskBandPill(email.risk_score)}
                         </td>
                         <td class="px-6 py-4">
                             <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(lbl)}">
@@ -4082,9 +4183,11 @@ outline-offset: 2px;
             });
 
             const score = email.risk_score ?? 0;
-            const sev   = capitalize(email.severity || "low");
-            setText("detail-risk-score", score || "—");
-            setText("detail-risk-label", `${sev} / ${email.status === "delivered" ? "Reviewed" : "Phishing Risk"}`);
+            const band  = getRiskBand(score);
+            setText("detail-band-icon",  band.icon);
+            setText("detail-band-label", band.label);
+            setText("detail-risk-score-small", `Score: ${email.risk_score ?? '—'}/100`);
+            setText("detail-band-action", band.action);
 
             // Plain-English explanation
             const scoreForColor = email.risk_score ?? 0;
@@ -4109,10 +4212,282 @@ outline-offset: 2px;
                     </li>`;
             }).join("") || '<li class="text-slate-500 text-sm">No feature breakdown available.</li>';
 
-            const scoreClasses = getScoreCardClasses(score);
-            document.getElementById("detail-score-card").className  = `bg-white rounded-2xl border ${scoreClasses.border} shadow-sm overflow-hidden`;
-            document.getElementById("detail-score-header").className = `${scoreClasses.header} text-white p-6 text-center`;
+            const scoreCard   = document.getElementById("detail-score-card");
+            const scoreHeader = document.getElementById("detail-score-header");
+            scoreCard.className = "bg-white rounded-2xl border shadow-sm overflow-hidden";
+            scoreCard.style.borderColor = band.border;
+            scoreHeader.className = "text-white p-6 text-center";
+            scoreHeader.style.background = band.color;
             document.getElementById("detail-action-status").classList.add("hidden");
+
+            renderDetailActionPanels(email);
+        }
+
+        // ── Role-based action panels (Change 4) ─────────────────────────
+        // Owner: contributor opinions summary + the final-decision buttons.
+        // Contributor: opinion radio panel instead of the action buttons.
+
+        const OPINION_LABEL_TEXT = {
+            phishing:            'Phishing',
+            needs_investigation: 'Needs review',
+            safe:                'Safe',
+        };
+        const OPINION_BADGE_STYLE = {
+            phishing:            'background:#FEF2F2;color:#DC2626;border:1px solid #FECACA',
+            needs_investigation: 'background:#FFFBEB;color:#D97706;border:1px solid #FDE68A',
+            safe:                'background:#F0FDF4;color:#16A34A;border:1px solid #86EFAC',
+        };
+
+        function renderDetailActionPanels(email) {
+            const isOwner      = currentUser?.role === 'Admin';
+            const ownerPanel   = document.getElementById('owner-action-panel');
+            const opinionPanel = document.getElementById('contributor-opinion-panel');
+            const summaryEl    = document.getElementById('contributor-opinions-summary');
+            if (!ownerPanel || !opinionPanel || !summaryEl) return;
+
+            if (isOwner) {
+                ownerPanel.style.display = '';
+                opinionPanel.innerHTML   = '';
+                summaryEl.innerHTML      = buildOpinionsSummary(email.feedback || []);
+            } else {
+                ownerPanel.style.display = 'none';
+                summaryEl.innerHTML      = '';
+                opinionPanel.innerHTML   = buildOpinionPanel(email.id);
+            }
+        }
+
+        function buildOpinionsSummary(feedback) {
+            if (!feedback.length) return '';
+            const counts = { phishing: 0, needs_investigation: 0, safe: 0 };
+            feedback.forEach(f => { if (counts[f.label] != null) counts[f.label]++; });
+
+            const cards = feedback.map(f => {
+                const initial   = (f.user_name || '?').charAt(0).toUpperCase();
+                const badgeText = OPINION_LABEL_TEXT[f.label] || capitalize(f.label);
+                const badgeCss  = OPINION_BADGE_STYLE[f.label] || OPINION_BADGE_STYLE.needs_investigation;
+                return `
+                <div style="border:1px solid #F3F4F6;border-radius:10px;padding:10px 12px;margin-top:8px;background:#FAFAFA">
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+                        <span style="width:24px;height:24px;border-radius:50%;background:#4F46E5;color:white;font-size:11px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0">${escapeHtml(initial)}</span>
+                        <strong style="font-size:13px;color:#111827">${escapeHtml(f.user_name || 'Unknown')}</strong>
+                        <span style="font-size:11px;font-weight:600;padding:2px 8px;border-radius:12px;${badgeCss}">${escapeHtml(badgeText)}</span>
+                        <span style="font-size:11px;color:#9CA3AF;margin-left:auto">${escapeHtml(formatRelativeTime(f.created_at))}</span>
+                    </div>
+                    ${f.comment ? `<p style="font-size:12px;color:#4B5563;margin:6px 0 0;line-height:1.5;font-style:italic">"${escapeHtml(f.comment)}"</p>` : ''}
+                </div>`;
+            }).join('');
+
+            return `
+            <div style="margin-bottom:16px">
+                <h4 style="font-size:14px;font-weight:600;color:#111827;margin:0">Contributor Opinions</h4>
+                <p style="font-size:12px;color:#6B7280;margin:2px 0 8px">${feedback.length} contributor opinion${feedback.length !== 1 ? 's' : ''} on this email</p>
+                <div style="display:flex;gap:6px;flex-wrap:wrap">
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;${OPINION_BADGE_STYLE.phishing}">🔴 Phishing: ${counts.phishing}</span>
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;${OPINION_BADGE_STYLE.needs_investigation}">⚠️ Unsure: ${counts.needs_investigation}</span>
+                    <span style="font-size:11px;font-weight:600;padding:3px 9px;border-radius:12px;${OPINION_BADGE_STYLE.safe}">✅ Safe: ${counts.safe}</span>
+                </div>
+                ${cards}
+                <hr style="margin:14px 0 10px;border:none;border-top:1px solid #F3F4F6">
+                <p style="font-size:12px;color:#6B7280;margin:0 0 4px">Make your final decision:</p>
+            </div>`;
+        }
+
+        function buildOpinionPanel(emailId) {
+            return `
+            <h4 style="font-size:14px;font-weight:600;color:#111827;margin:0">Your Analysis</h4>
+            <p style="color:#6B7280;font-size:13px;margin:2px 0 12px">What do you think about this email?</p>
+            <div class="opinion-options" style="display:flex;flex-direction:column;gap:8px">
+                <label class="opinion-option">
+                    <input type="radio" name="opinion" value="phishing" onchange="updateOpinionSelection()">
+                    <span class="opinion-icon">🔴</span>
+                    <div>
+                        <strong>This looks like phishing</strong>
+                        <p>Suspicious intent, deceptive content, or fraudulent links</p>
+                    </div>
+                </label>
+                <label class="opinion-option">
+                    <input type="radio" name="opinion" value="needs_investigation" onchange="updateOpinionSelection()">
+                    <span class="opinion-icon">⚠️</span>
+                    <div>
+                        <strong>I'm not sure — needs more review</strong>
+                        <p>Something feels off but I can't be certain</p>
+                    </div>
+                </label>
+                <label class="opinion-option">
+                    <input type="radio" name="opinion" value="safe" onchange="updateOpinionSelection()">
+                    <span class="opinion-icon">✅</span>
+                    <div>
+                        <strong>This looks safe to me</strong>
+                        <p>Appears to be a legitimate email</p>
+                    </div>
+                </label>
+            </div>
+            <textarea id="opinion-comment" maxlength="1000"
+                placeholder="Add your reasoning (recommended) — explain what signals you noticed..."
+                style="width:100%;min-height:80px;margin-top:12px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px;resize:vertical;font-family:inherit"></textarea>
+            <button type="button" onclick="submitContributorOpinion('${escapeHtml(emailId)}', this)"
+                style="width:100%;margin-top:12px;padding:11px;background:#4F46E5;color:white;border:none;border-radius:8px;font-size:14px;font-weight:500;cursor:pointer">
+                Submit my analysis
+            </button>`;
+        }
+
+        function updateOpinionSelection() {
+            const classMap = { phishing: 'sel-phishing', needs_investigation: 'sel-uncertain', safe: 'sel-safe' };
+            document.querySelectorAll('.opinion-option').forEach(opt => {
+                opt.classList.remove('sel-phishing', 'sel-uncertain', 'sel-safe');
+                const input = opt.querySelector('input[name="opinion"]');
+                if (input?.checked) opt.classList.add(classMap[input.value]);
+            });
+        }
+
+        async function submitContributorOpinion(emailId, btn) {
+            const opinion = document.querySelector('input[name="opinion"]:checked')?.value;
+            if (!opinion) {
+                showAppMessage('Please select an opinion before submitting.');
+                return;
+            }
+            const comment = document.getElementById('opinion-comment')?.value.trim() || '';
+
+            // Map to existing quarantine endpoints
+            const endpointMap = {
+                phishing:            `/quarantine/${emailId}/confirm`,
+                needs_investigation: `/quarantine/${emailId}/investigate`,
+                safe:                `/quarantine/${emailId}/release`,
+            };
+
+            btn.disabled = true;
+            btn.textContent = 'Submitting...';
+
+            let res = null;
+            try {
+                res = await apiFetch(endpointMap[opinion], {
+                    method: 'POST',
+                    body: JSON.stringify({ comment }),
+                });
+            } catch (_) {}
+
+            if (res && res.ok) {
+                const opinionLabels = {
+                    phishing:            'phishing',
+                    needs_investigation: 'needs more review',
+                    safe:                'safe',
+                };
+                const panel = document.getElementById('contributor-opinion-panel');
+                if (panel) {
+                    panel.innerHTML = `
+                        <div style="text-align:center;padding:20px 16px;background:#F8FAFC;border-radius:10px;border:1px solid #E5E7EB">
+                            <div style="font-size:32px;margin-bottom:8px">✓</div>
+                            <p style="font-size:14px;font-weight:600;color:#111827;margin-bottom:4px">Analysis submitted</p>
+                            <p style="font-size:13px;color:#6B7280;margin:0">
+                                You marked this email as <strong>${opinionLabels[opinion]}</strong>.
+                                The workspace owner will review all opinions before making a final decision.
+                            </p>
+                        </div>`;
+                }
+                const emailSubject = document.getElementById('detail-subject')?.textContent || 'email';
+                addNotification({
+                    event:     'opinion_submitted',
+                    title:     'Analysis submitted',
+                    message:   `Your opinion on "${emailSubject}" has been recorded.`,
+                    severity:  'success',
+                    timestamp: new Date().toISOString(),
+                });
+            } else {
+                btn.disabled = false;
+                btn.textContent = 'Submit my analysis';
+                showAppMessage('Failed to submit. Please try again.');
+            }
+        }
+
+        // ── Help request modal (Change 3) ───────────────────────────────
+
+        async function openHelpRequestModal(emailId) {
+            if (!emailId) return;
+            const modal  = document.getElementById('help-request-modal');
+            const listEl = document.getElementById('help-user-list');
+            const noteEl = document.getElementById('help-note');
+            if (!modal || !listEl) return;
+
+            window._helpRequestEmailId = emailId;
+            if (noteEl) noteEl.value = '';
+            listEl.innerHTML = '<p style="font-size:13px;color:#9CA3AF;margin:0">Loading workspace members…</p>';
+            modal.style.display = 'flex';
+
+            try {
+                const resp = await apiFetch('/users');
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const data  = await resp.json();
+                const users = (Array.isArray(data) ? data : data.items || [])
+                    .filter(u => u.email !== currentUser?.email && u.is_active !== false);
+                if (!users.length) {
+                    listEl.innerHTML = '<p style="font-size:13px;color:#9CA3AF;margin:0">No other active workspace members to notify. Invite teammates from User Management first.</p>';
+                    return;
+                }
+                listEl.innerHTML = users.map(u => `
+                    <label style="display:flex;align-items:center;gap:10px;padding:9px 12px;border:1px solid #E5E7EB;border-radius:10px;cursor:pointer;background:white"
+                        onmouseover="this.style.background='#F8FAFC'" onmouseout="this.style.background='white'">
+                        <input type="checkbox" class="help-user-cb" value="${escapeHtml(u.id)}" style="width:15px;height:15px;accent-color:#4F46E5;cursor:pointer;flex-shrink:0">
+                        <span style="font-size:13px;color:#111827;font-weight:500">${escapeHtml(u.full_name || u.email)}
+                            <span style="color:#9CA3AF;font-weight:400">(${escapeHtml(u.email)})</span>
+                        </span>
+                    </label>`).join('');
+            } catch (_) {
+                listEl.innerHTML = '<p style="font-size:13px;color:#DC2626;margin:0">Could not load workspace members. Please try again.</p>';
+            }
+        }
+
+        function closeHelpRequestModal() {
+            const modal = document.getElementById('help-request-modal');
+            if (modal) modal.style.display = 'none';
+            window._helpRequestEmailId = null;
+        }
+
+        async function submitHelpRequest() {
+            const ids = Array.from(document.querySelectorAll('.help-user-cb:checked')).map(cb => cb.value);
+            if (!ids.length) {
+                showAppMessage('Select at least one person to notify.');
+                return;
+            }
+            const note = document.getElementById('help-note')?.value.trim() || '';
+            const btn  = document.getElementById('help-send-btn');
+            if (btn) { btn.disabled = true; btn.textContent = 'Sending…'; }
+
+            try {
+                const resp = await apiFetch(`/emails/${window._helpRequestEmailId}/request-help`, {
+                    method: 'POST',
+                    body: JSON.stringify({ user_ids: ids, note: note || null }),
+                });
+                if (resp.status === 202 || resp.ok) {
+                    const data = await resp.json().catch(() => ({}));
+                    const n = data.notified ?? ids.length;
+                    showAppMessage(`Help request sent to ${n} contributor${n !== 1 ? 's' : ''}.`);
+                    addNotification({
+                        event:     'help_requested',
+                        title:     'Help Request Sent',
+                        message:   `${n} workspace member${n !== 1 ? 's' : ''} notified about this email.`,
+                        severity:  'info',
+                        timestamp: new Date().toISOString(),
+                    });
+                    closeHelpRequestModal();
+                } else {
+                    const err = await resp.json().catch(() => ({}));
+                    showAppMessage(err?.detail || err?.error?.message || 'Help request failed. Please try again.');
+                }
+            } catch (_) {
+                showAppMessage('Help request failed. Check your connection.');
+            } finally {
+                if (btn) { btn.disabled = false; btn.textContent = 'Send help request'; }
+            }
+        }
+
+        // ── Deep link: ?email={id} opens the email detail after auth ────
+
+        function openPendingEmailIfAny() {
+            const pending = sessionStorage.getItem('pendingEmailId');
+            if (pending) {
+                sessionStorage.removeItem('pendingEmailId');
+                openEmailDetail(pending);
+            }
         }
 
         async function handleAction(action) {
@@ -4206,12 +4581,7 @@ outline-offset: 2px;
                 }
                 if (!result) throw new Error('Analysis timed out. Please try again.');
 
-                const score = result.risk_score ?? 0;
-                const sev   = capitalize(result.severity || 'low');
-                setText("ma-result-score",       score);
-                setText("ma-result-title",       `${sev} Risk`);
-                setText("ma-result-description", result.explanation || "Analysis complete.");
-                showElement(document.getElementById("ma-result"));
+                renderAnalysisResultCard(email_id, result);
                 // Refresh dashboard so new email appears in stats
                 setTimeout(renderDashboard, 800);
             } catch (err) {
@@ -4220,6 +4590,64 @@ outline-offset: 2px;
             } finally {
                 button.disabled  = false;
                 button.innerHTML = originalText;
+            }
+        }
+
+        // Render the post-analysis result card: band label + icon + action text
+        // + per-band CTA button (Change 2 item 4).
+        function renderAnalysisResultCard(emailId, result) {
+            const card = document.getElementById('ma-result');
+            if (!card) return;
+            const score = result.risk_score ?? 0;
+            const band  = getRiskBand(score);
+
+            // Map band CTA → existing quarantine endpoints.
+            const ctaEndpoint = {
+                'cta-low':        'release',
+                'cta-suspicious': 'investigate',
+                'cta-high':       'confirm',
+                'cta-critical':   'confirm',
+            }[band.ctaClass];
+
+            const ctaBtn = band.cta
+                ? `<button type="button" class="${band.ctaClass}" onclick="maResultCta('${escapeHtml(emailId)}', '${ctaEndpoint}', this)"
+                       style="margin-top:10px;padding:8px 16px;background:${band.color};color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+                       ${escapeHtml(band.cta)}
+                   </button>`
+                : `<p style="margin:10px 0 0;font-size:12px;font-weight:600;color:${band.color}">No action required</p>`;
+
+            card.innerHTML = `
+                <div style="display:flex;align-items:flex-start;gap:12px;padding:16px;background:${band.bg};border:1px solid ${band.border};border-radius:12px">
+                    <div style="width:38px;height:38px;background:white;border:1px solid ${band.border};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;color:${band.color};flex-shrink:0" aria-hidden="true">${band.icon}</div>
+                    <div style="flex:1;min-width:0">
+                        <h4 style="font-size:16px;font-weight:700;color:${band.color};margin:0">${band.label}</h4>
+                        <p style="font-size:11px;color:#9CA3AF;margin:1px 0 6px">Score: ${score}/100</p>
+                        <p style="font-size:13px;font-weight:500;color:#374151;margin:0 0 4px">${band.action}</p>
+                        ${result.explanation ? `<p style="font-size:12px;color:#6B7280;margin:0;line-height:1.5">${escapeHtml(result.explanation)}</p>` : ''}
+                        ${ctaBtn}
+                    </div>
+                </div>`;
+            card.classList.remove('hidden');
+        }
+
+        async function maResultCta(emailId, endpoint, btn) {
+            btn.disabled = true;
+            const original = btn.textContent;
+            btn.textContent = 'Working…';
+            try {
+                const resp = await apiFetch(`/quarantine/${emailId}/${endpoint}`, { method: 'POST' });
+                if (!resp || !resp.ok) throw new Error('Failed');
+                const messages = {
+                    release:     'Marked as reviewed — feedback recorded as safe.',
+                    investigate: 'Flagged for review.',
+                    confirm:     'Confirmed as phishing.',
+                };
+                btn.textContent = '✓ Done';
+                showAppMessage(messages[endpoint] || 'Action recorded.');
+            } catch (_) {
+                btn.disabled = false;
+                btn.textContent = original;
+                showAppMessage('Action failed. Please try again.');
             }
         }
 
@@ -4558,7 +4986,7 @@ outline-offset: 2px;
                         <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
                         <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
                     </td>
-                    <td class="px-6 py-4 font-semibold ${getRiskTextClass(score)}">${score}<span class="text-slate-400 text-xs font-normal ml-1">/100</span></td>
+                    <td class="px-6 py-4">${riskBandPill(email.risk_score)}</td>
                     <td class="px-6 py-4"><span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(lbl)}">${escapeHtml(lbl)}</span></td>
                     <td class="px-6 py-4 text-right">
                         <button type="button" onclick="openEmailDetail('${email.id}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-xs px-2 py-1">View</button>
@@ -4891,11 +5319,11 @@ outline-offset: 2px;
                 ? { bg: '#dbeafe', color: '#1d4ed8' }
                 : { bg: '#f3e8ff', color: '#7c3aed' };
             if (isSelf) {
-                return `<span style="background:${roleColor.bg};color:${roleColor.color};border-radius:20px;padding:3px 12px;font-size:12px;display:inline-block;font-weight:500">${escapeHtml(user.role)}</span>`;
+                return `<span style="background:${roleColor.bg};color:${roleColor.color};border-radius:20px;padding:3px 12px;font-size:12px;display:inline-block;font-weight:500">${escapeHtml(roleDisplay(user.role))}</span>`;
             }
             return `<span onclick="editUserRole('${user.id}')" title="Click to change role"
                 style="background:${roleColor.bg};color:${roleColor.color};border-radius:20px;padding:3px 12px;font-size:12px;display:inline-block;font-weight:500;cursor:pointer"
-                onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${escapeHtml(user.role)}</span>`;
+                onmouseover="this.style.opacity='0.75'" onmouseout="this.style.opacity='1'">${escapeHtml(roleDisplay(user.role))}</span>`;
         }
 
         function buildUserRow(user) {
@@ -5072,7 +5500,7 @@ outline-offset: 2px;
                     const statusEl = document.getElementById("user-management-status");
                     setUserManagementStatus(`Invitation sent successfully to ${email}`, "success");
                     setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 5000);
-                    addNotification({ event: 'user_invited', title: 'Invitation Sent', message: `Invite sent to ${email} as ${role}.`, severity: 'info', timestamp: new Date().toISOString() });
+                    addNotification({ event: 'user_invited', title: 'Invitation Sent', message: `Invite sent to ${email} as ${roleDisplay(role)}.`, severity: 'info', timestamp: new Date().toISOString() });
                     succeeded = true;
                 } else {
                     const data = await resp.json().catch(() => ({}));
@@ -5275,8 +5703,8 @@ outline-offset: 2px;
 
             const select = document.createElement('select');
             select.style.cssText = 'padding:3px 8px;background:#fff;border:1px solid #a5b4fc;border-radius:8px;font-size:12px;cursor:pointer;outline:none;color:#1d4ed8;font-weight:500';
-            select.innerHTML = `<option value="admin"${user.role === 'Admin' ? ' selected' : ''}>Admin</option>
-                                <option value="analyst"${user.role === 'Analyst' ? ' selected' : ''}>Analyst</option>`;
+            select.innerHTML = `<option value="admin"${user.role === 'Admin' ? ' selected' : ''}>Owner</option>
+                                <option value="analyst"${user.role === 'Analyst' ? ' selected' : ''}>Contributor</option>`;
 
             let saved = false;
 
@@ -5757,15 +6185,14 @@ outline-offset: 2px;
             setText("digest-summary", "PhishGuard identified the following emails for review.");
 
             document.getElementById("digest-items").innerHTML = items.slice(0, 5).map(item => {
-                const score    = item.risk_score ?? 0;
-                const riskLabel = score >= 80 ? "High Risk" : score >= 30 ? "Suspicious" : "Safe";
-                const riskClass = score >= 80 ? "text-rose-600 bg-rose-100" : score >= 30 ? "text-amber-600 bg-amber-100" : "text-emerald-600 bg-emerald-100";
+                const score = item.risk_score ?? 0;
+                const band  = getRiskBand(score);
                 return `
                 <div class="flex items-center gap-3 px-4 py-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-0.5">
                             <span class="text-xs font-medium text-slate-900 truncate">${escapeHtml(item.sender || '(unknown)')}</span>
-                            <span class="text-[10px] font-bold uppercase tracking-wider ${riskClass} px-1.5 py-0.5 rounded shrink-0">${riskLabel}</span>
+                            <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style="color:${band.color};background:${band.bg};border:1px solid ${band.border}">${band.label}</span>
                         </div>
                         <p class="text-xs text-slate-500 truncate">${escapeHtml(item.subject || '(no subject)')}</p>
                     </div>
@@ -5955,11 +6382,16 @@ outline-offset: 2px;
                     if (inactivityWarning && inactivityWarning.style.display === 'flex') { resetInactivityTimer(); return; }
                     const modal = document.getElementById('user-action-modal');
                     if (modal && modal.style.display === 'flex') { closeUserModal(); return; }
+                    const helpModal = document.getElementById('help-request-modal');
+                    if (helpModal && helpModal.style.display === 'flex') { closeHelpRequestModal(); return; }
                     closeSidebar();
                 }
             });
             document.getElementById('user-action-modal')?.addEventListener('click', e => {
                 if (e.target === document.getElementById('user-action-modal')) closeUserModal();
+            });
+            document.getElementById('help-request-modal')?.addEventListener('click', e => {
+                if (e.target === document.getElementById('help-request-modal')) closeHelpRequestModal();
             });
 
             // ── Tab visibility — silently verify session when user returns ──
@@ -5984,6 +6416,9 @@ outline-offset: 2px;
             const sessionRestored = await tryRestoreSession();
             document.getElementById('session-loading').style.display = 'none';
 
+            // Deep link: ?email={id} from a help-request notification email.
+            const deepLinkEmailId = new URLSearchParams(window.location.search).get('email');
+
             if (sessionRestored) {
                 // Valid session — go straight to the dashboard.
                 window._notifications = [];
@@ -5995,8 +6430,11 @@ outline-offset: 2px;
                 document.getElementById("app-layout").classList.remove("hidden");
                 navigate("home");
                 maybeShowRoleBanner();
+                if (deepLinkEmailId) openEmailDetail(deepLinkEmailId);
             } else {
-                // No valid session — show the login screen.
+                // No valid session — remember the deep-link target for after login.
+                if (deepLinkEmailId) sessionStorage.setItem('pendingEmailId', deepLinkEmailId);
+                // Show the login screen.
                 const urlParams   = new URLSearchParams(window.location.search);
                 const inviteToken = urlParams.get('invite');
                 if (inviteToken) {

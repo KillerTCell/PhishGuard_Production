@@ -52,12 +52,34 @@ class Classification(str, Enum):
 
 
 class Severity(str, Enum):
-    """Computed severity band (not a DB column — derived at classify time)."""
+    """Computed severity band (not a DB column — derived at classify time).
 
-    critical = "critical"
-    high = "high"
-    medium = "medium"
+    5-band system mapped from risk_score:
+        safe        0–19
+        low         20–44
+        suspicious  45–64
+        high        65–84
+        critical    85–100
+    """
+
+    safe = "safe"
     low = "low"
+    suspicious = "suspicious"
+    high = "high"
+    critical = "critical"
+
+
+def score_to_severity(score: int) -> Severity:
+    """Map a 0–100 risk score to its 5-band :class:`Severity`."""
+    if score <= 19:
+        return Severity.safe
+    if score <= 44:
+        return Severity.low
+    if score <= 64:
+        return Severity.suspicious
+    if score <= 84:
+        return Severity.high
+    return Severity.critical
 
 
 class FeedbackLabel(str, Enum):

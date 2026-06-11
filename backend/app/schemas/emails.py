@@ -107,6 +107,20 @@ class EmailFeatureDetail(BaseModel):
     score_contribution: float
 
 
+class FeedbackEntry(BaseModel):
+    """One contributor opinion attached to an email (joined from feedback + users).
+
+    Only feedback rows from the contributor review flow (detail.source ==
+    'contributor_review') or rows carrying a comment are returned.
+    """
+
+    id: uuid.UUID
+    label: str
+    comment: Optional[str] = None
+    user_name: str
+    created_at: datetime
+
+
 # ---------------------------------------------------------------------------
 # GET /emails  — list item
 # ---------------------------------------------------------------------------
@@ -186,3 +200,25 @@ class EmailDetail(BaseModel):
     # Lifecycle flags
     quarantined: bool = False
     added_to_training: bool = False
+
+    # Contributor opinions (Change 4 — owner review summary)
+    feedback: list[FeedbackEntry] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# POST /emails/{id}/request-help
+# ---------------------------------------------------------------------------
+
+
+class HelpRequestBody(BaseModel):
+    """Owner/contributor asks other workspace members to review an email."""
+
+    user_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=20)
+    note: Optional[str] = Field(None, max_length=500)
+
+
+class HelpRequestResponse(BaseModel):
+    """202 returned after help-request notifications are dispatched."""
+
+    notified: int
+    skipped: int

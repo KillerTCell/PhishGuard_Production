@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.schemas.common import Classification, EmailStatus, FeedbackState, Severity
 from app.schemas.emails import EmailFeatureDetail
@@ -78,6 +78,16 @@ class DigestPreviewResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # POST /quarantine/{id}/confirm|release|investigate
 # ---------------------------------------------------------------------------
+
+
+class QuarantineActionBody(BaseModel):
+    """Optional request body for quarantine actions.
+
+    The contributor opinion flow submits a free-text comment which is stored
+    in feedback.detail JSONB as {"comment": ..., "source": "contributor_review"}.
+    """
+
+    comment: Optional[str] = Field(None, max_length=1000)
 
 
 class QuarantineActionResponse(BaseModel):

@@ -25,7 +25,9 @@ from app.dependencies import CurrentUser, get_current_user, get_db, require_admi
 from app.models.analysis_result import AnalysisResult
 from app.models.email import Email
 from app.models.email_feature import EmailFeature
-from app.schemas.common import RiskBand, Severity
+from app.models.feedback import Feedback
+from app.models.user import User
+from app.schemas.common import RiskBand, Severity, score_to_severity
 from app.schemas.emails import (
     AttachmentMetadata,
     BulkUploadError,
@@ -36,6 +38,9 @@ from app.schemas.emails import (
     EmailListItem,
     EmailListResponse,
     EmailUploadResponse,
+    FeedbackEntry,
+    HelpRequestBody,
+    HelpRequestResponse,
     LinkDetail,
 )
 from app.services import audit_service
@@ -53,7 +58,7 @@ _MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 
 
 def _severity(risk_score: int | None) -> Severity | None:
-    """Derive the severity band from a risk score (0-100).
+    """Derive the 5-band severity from a risk score (0-100).
 
     ``Severity`` is not stored as a DB column — it is computed at read time
     (see :class:`~app.schemas.common.Severity` docstring).
@@ -62,19 +67,12 @@ def _severity(risk_score: int | None) -> Severity | None:
         risk_score: Integer 0-100, or ``None`` when analysis is still pending.
 
     Returns:
-        :attr:`~Severity.critical`, :attr:`~Severity.high`,
-        :attr:`~Severity.medium`, or :attr:`~Severity.low`;
+        One of the five :class:`~app.schemas.common.Severity` bands;
         ``None`` when *risk_score* is ``None``.
     """
     if risk_score is None:
         return None
-    if risk_score >= 90:
-        return Severity.critical
-    if risk_score >= 80:
-        return Severity.high
-    if risk_score >= 30:
-        return Severity.medium
-    return Severity.low
+    return score_to_severity(risk_score)
 
 
 def _dispatch_analysis_chain(email_id: uuid.UUID) -> None:
@@ -404,6 +402,109 @@ async def list_emails(
 
 
 # ---------------------------------------------------------------------------
+# POST /emails/{id}/request-help
+# Registered BEFORE the /{email_id} routes.
+# ---------------------------------------------------------------------------
+
+_BAND_LABELS: dict[Severity, str] = {
+    Severity.safe: "Safe",
+    Severity.low: "Low Risk",
+    Severity.suspicious: "Suspicious",
+    Severity.high: "High Risk",
+    Severity.critical: "Critical Threat",
+}
+
+
+@router.post(
+    "/emails/{email_id}/request-help",
+    response_model=HelpRequestResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Notify other workspace members about an email (help request)",
+)
+async def request_help(
+    email_id: uuid.UUID,
+    body: HelpRequestBody,
+    request: Request,
+    current_user: CurrentUser = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> HelpRequestResponse:
+    """Send help-request emails (via Resend) to selected workspace members.
+
+    Recipients are validated against the caller's organisation; user_ids that
+    don't belong to the org (or equal the caller) are silently skipped.
+    Writes a ``help_requested`` audit_log row with the notified addresses.
+    """
+    from app.core.config import settings  # noqa: PLC0415
+    from app.services import resend_service  # noqa: PLC0415
+
+    row = (
+        await db.execute(
+            select(Email, AnalysisResult)
+            .outerjoin(AnalysisResult, AnalysisResult.email_id == Email.id)
+            .where(Email.id == email_id, Email.org_id == current_user.org_id)
+        )
+    ).one_or_none()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Email not found")
+    email, analysis = row
+
+    risk_score = analysis.risk_score if analysis else 0
+    band_label = _BAND_LABELS[score_to_severity(risk_score)]
+
+    # Recipients must belong to the same org; the caller is excluded.
+    recipients = (
+        await db.execute(
+            select(User).where(
+                User.id.in_(body.user_ids),
+                User.org_id == current_user.org_id,
+                User.id != current_user.id,
+            )
+        )
+    ).scalars().all()
+
+    deep_link = f"{settings.FRONTEND_URL.rstrip('/')}/PhishGuard.html?email={email_id}"
+    subject = f"[PhishGuard] {current_user.full_name} needs your help analysing an email"
+
+    notified_emails: list[str] = []
+    for recipient in recipients:
+        html = resend_service.build_help_request_html(
+            recipient_name=recipient.full_name,
+            requester_name=current_user.full_name,
+            email=email,
+            risk_score=risk_score,
+            band_label=band_label,
+            note=body.note,
+            deep_link=deep_link,
+        )
+        sent = await resend_service.send_digest_email(recipient.email, html, subject)
+        if sent:
+            notified_emails.append(recipient.email)
+
+    skipped = len(body.user_ids) - len(notified_emails)
+
+    await audit_service.write_audit_log(
+        db,
+        org_id=current_user.org_id,
+        user_id=current_user.id,
+        action="help_requested",
+        target_type="email",
+        target_id=email_id,
+        ip_address=request.client.host if request.client else None,
+        request_id=request.headers.get("x-request-id"),
+        detail={"notified_users": notified_emails, "note": body.note},
+    )
+
+    logger.info(
+        "help_requested",
+        email_id=str(email_id),
+        notified=len(notified_emails),
+        skipped=skipped,
+        org_id=str(current_user.org_id),
+    )
+    return HelpRequestResponse(notified=len(notified_emails), skipped=skipped)
+
+
+# ---------------------------------------------------------------------------
 # GET /emails/{id}
 # ---------------------------------------------------------------------------
 
@@ -463,6 +564,29 @@ async def get_email(
         for att in (email.attachment_metadata or [])
     ]
 
+    # Contributor opinions — feedback rows joined with user names.
+    # Only rows from the contributor review flow or rows carrying a comment.
+    feedback_rows = (
+        await db.execute(
+            select(Feedback, User.full_name)
+            .outerjoin(User, User.id == Feedback.user_id)
+            .where(Feedback.email_id == email_id)
+            .order_by(Feedback.created_at.desc())
+        )
+    ).all()
+    feedback_entries = [
+        FeedbackEntry(
+            id=fb.id,
+            label=fb.label,
+            comment=(fb.detail or {}).get("comment"),
+            user_name=user_name or "Unknown user",
+            created_at=fb.created_at,
+        )
+        for fb, user_name in feedback_rows
+        if (fb.detail or {}).get("source") == "contributor_review"
+        or (fb.detail or {}).get("comment")
+    ]
+
     return EmailDetail(
         id=email.id,
         sender=email.sender,
@@ -487,6 +611,7 @@ async def get_email(
         model_version=analysis.model_version if analysis else None,
         quarantined=email.status == "quarantined",
         added_to_training=email.added_to_training,
+        feedback=feedback_entries,
     )
 
 

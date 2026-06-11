@@ -292,6 +292,143 @@ def build_digest_html(
 
 
 # ---------------------------------------------------------------------------
+# build_help_request_html
+# ---------------------------------------------------------------------------
+
+
+def build_help_request_html(
+    recipient_name: str,
+    requester_name: str,
+    email: Any,           # Email ORM instance
+    risk_score: int,
+    band_label: str,
+    note: str | None,
+    deep_link: str,
+) -> str:
+    """Build the help-request notification email sent to workspace contributors.
+
+    Args:
+        recipient_name: Full name of the contributor being notified.
+        requester_name: Full name of the user asking for help.
+        email:          Email ORM row (reads ``sender``, ``subject``, ``status``).
+        risk_score:     0–100 risk score (0 when analysis is pending).
+        band_label:     Display label for the risk band (e.g. "High Risk").
+        note:           Optional message from the requester (block omitted if empty).
+        deep_link:      Frontend URL that opens the email detail directly.
+
+    Returns:
+        Complete HTML string ready for the Resend ``html`` parameter.
+    """
+    sender = _esc(email.sender or "Unknown sender")
+    subject = _esc(email.subject or "(No subject)")
+    status_str = _esc(email.status or "pending")
+    recipient = _esc(recipient_name)
+    requester = _esc(requester_name)
+
+    note_block = ""
+    if note and note.strip():
+        note_block = f"""
+      <h2 class="section-heading">{requester}'s note:</h2>
+      <div class="note" role="note">"{_esc(note.strip())}"</div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PhishGuard Help Request</title>
+  <style>
+    body {{
+      font-family: system-ui, -apple-system, Segoe UI, Arial, sans-serif;
+      font-size: 16px; line-height: 1.6; color: #222222;
+      background-color: #f0f0f0; margin: 0; padding: 0;
+    }}
+    .wrapper {{ max-width: 600px; margin: 32px auto; padding: 0 16px; }}
+    .card {{
+      background: #ffffff; border-radius: 8px;
+      border: 1px solid #dddddd; padding: 36px 40px;
+    }}
+    .logo {{
+      font-size: 1.1rem; font-weight: 700; color: #1a237e;
+      margin: 0 0 24px; letter-spacing: -0.01em;
+    }}
+    h1 {{ font-size: 1.3rem; color: #1a237e; margin: 0 0 16px; font-weight: 700; }}
+    .intro {{ font-size: 0.95rem; color: #444444; margin: 0 0 24px; }}
+    table.meta {{
+      width: 100%; border-collapse: collapse; margin: 0 0 20px;
+      font-size: 0.9rem;
+    }}
+    table.meta th {{
+      text-align: left; padding: 5px 16px 5px 0;
+      color: #555555; font-weight: 600;
+      white-space: nowrap; vertical-align: top; width: 90px;
+    }}
+    table.meta td {{ padding: 5px 0; color: #222222; word-break: break-word; }}
+    h2.section-heading {{
+      font-size: 0.95rem; font-weight: 700; color: #333333; margin: 24px 0 8px;
+    }}
+    .note {{
+      background-color: #f8f8f8; border-left: 4px solid #4f46e5;
+      padding: 12px 16px; border-radius: 0 4px 4px 0;
+      font-size: 0.93rem; color: #333333; margin: 0 0 8px; font-style: italic;
+    }}
+    .btn {{
+      display: inline-block; padding: 12px 22px; margin-top: 20px;
+      border-radius: 5px; font-size: 0.93rem; font-weight: 600;
+      text-decoration: none; line-height: 1;
+      background-color: #4f46e5; color: #ffffff;
+    }}
+    .account-note {{
+      font-size: 0.82rem; color: #666666; margin: 28px 0 0;
+      padding-top: 20px; border-top: 1px solid #eeeeee;
+    }}
+    .footer {{
+      font-size: 0.78rem; color: #888888;
+      text-align: center; margin-top: 20px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="card" role="main">
+
+      <p class="logo" aria-label="PhishGuard Security Platform">🛡 PhishGuard</p>
+
+      <h1>Hi {recipient},</h1>
+
+      <p class="intro">
+        {requester} from your PhishGuard workspace has flagged an email and
+        is asking for your analysis.
+      </p>
+
+      <h2 class="section-heading">About the email</h2>
+      <table class="meta" role="presentation" aria-label="Email details">
+        <tr><th scope="row">From</th><td>{sender}</td></tr>
+        <tr><th scope="row">Subject</th><td>{subject}</td></tr>
+        <tr><th scope="row">Risk</th><td>{_esc(band_label)} ({risk_score}/100)</td></tr>
+        <tr><th scope="row">Status</th><td>{status_str}</td></tr>
+      </table>
+      {note_block}
+
+      <a href="{deep_link}" class="btn" role="button"
+         aria-label="View and analyse this email in PhishGuard">
+        View and analyse this email &rarr;
+      </a>
+
+      <p class="account-note" role="note">
+        If you don't have a PhishGuard account, you'll be prompted to create
+        one. Ask {requester} to send you an invitation from the workspace
+        settings.
+      </p>
+
+    </div>
+    <p class="footer">— PhishGuard</p>
+  </div>
+</body>
+</html>"""
+
+
+# ---------------------------------------------------------------------------
 # send_digest_email
 # ---------------------------------------------------------------------------
 

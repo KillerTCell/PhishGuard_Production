@@ -38,7 +38,7 @@ from app.schemas.analysis import (
     SampleEmailResponse,
     SeverityDistribution,
 )
-from app.schemas.common import Severity, StatsPeriod
+from app.schemas.common import Severity, StatsPeriod, score_to_severity
 
 logger = structlog.get_logger(__name__)
 router = APIRouter(tags=["analysis"])
@@ -58,7 +58,7 @@ _FEATURE_NAMES = [
 
 
 def _severity(risk_score: int | None) -> Severity | None:
-    """Derive severity band from risk score (0-100).
+    """Derive the 5-band severity from risk score (0-100).
 
     ``severity`` is not a DB column on AnalysisResult — it is computed at
     read time from ``risk_score``.
@@ -67,19 +67,12 @@ def _severity(risk_score: int | None) -> Severity | None:
         risk_score: Integer 0-100, or ``None`` when analysis is pending.
 
     Returns:
-        :attr:`~Severity.critical`, :attr:`~Severity.high`,
-        :attr:`~Severity.medium`, or :attr:`~Severity.low`;
+        One of the five :class:`~app.schemas.common.Severity` bands;
         ``None`` when *risk_score* is ``None``.
     """
     if risk_score is None:
         return None
-    if risk_score >= 90:
-        return Severity.critical
-    if risk_score >= 80:
-        return Severity.high
-    if risk_score >= 30:
-        return Severity.medium
-    return Severity.low
+    return score_to_severity(risk_score)
 
 
 # ---------------------------------------------------------------------------
@@ -360,17 +353,19 @@ async def get_analysis_stats(
         )
     ).scalars().all()
 
-    sev_counts: dict[str, int] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+    # 5-band severity folded into the 4-segment dashboard chart:
+    # suspicious → medium_pct, safe+low → low_pct ("Low / Safe" segment).
+    sev_counts: dict[str, int] = {"critical": 0, "high": 0, "suspicious": 0, "low": 0, "safe": 0}
     for rs in risk_score_rows:
-        band = _severity(rs) or "low"
-        sev_counts[band] += 1
+        band = _severity(rs) or Severity.safe
+        sev_counts[band.value] += 1
 
     sev_total = sum(sev_counts.values()) or 1
     severity_dist = SeverityDistribution(
         critical_pct=round(sev_counts["critical"] / sev_total * 100, 1),
         high_pct=round(sev_counts["high"] / sev_total * 100, 1),
-        medium_pct=round(sev_counts["medium"] / sev_total * 100, 1),
-        low_pct=round(sev_counts["low"] / sev_total * 100, 1),
+        medium_pct=round(sev_counts["suspicious"] / sev_total * 100, 1),
+        low_pct=round((sev_counts["low"] + sev_counts["safe"]) / sev_total * 100, 1),
     )
 
     # Recent quarantined (last 5)

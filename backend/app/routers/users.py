@@ -17,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import CurrentUser, get_db, require_admin
+from app.dependencies import CurrentUser, get_current_user, get_db, require_admin
 from app.models.audit_log import AuditLog
 from app.models.export_job import ExportJob
 from app.models.invite_token import InviteToken
@@ -94,13 +94,18 @@ async def get_user_stats(
 @router.get(
     "/users",
     response_model=list[UserListItem],
-    summary="List all org users (admin only)",
+    summary="List all org users",
 )
 async def list_users(
-    current_user: CurrentUser = Depends(require_admin),
+    current_user: CurrentUser = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[UserListItem]:
-    """Return all users in the organisation ordered by created_at DESC."""
+    """Return all users in the organisation ordered by created_at DESC.
+
+    Open to all authenticated members (not owner-only) so the help-request
+    modal can list workspace members for any role.  Mutating user routes
+    remain owner-only.
+    """
     rows = (
         await db.execute(
             select(User)
