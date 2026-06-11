@@ -3028,7 +3028,7 @@ outline-offset: 2px;
                 return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb">Pending</span>`;
             }
             const b = getRiskBand(score);
-            return `<span title="${b.action}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${b.bg};color:${b.color};border:1px solid ${b.border};white-space:nowrap">${b.icon} ${b.label}</span>`;
+            return `<span title="${b.action}" style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:20px;font-size:12px;font-weight:500;background:${b.bg};color:${b.textColor || b.color};border:1px solid ${b.border};white-space:nowrap">${b.icon} ${b.label}</span>`;
         }
 
         // Display-only role label mapping — backend role values stay 'admin'/'analyst'.
@@ -6336,14 +6336,12 @@ outline-offset: 2px;
             setText("digest-summary", "PhishGuard identified the following emails for review.");
 
             document.getElementById("digest-items").innerHTML = items.slice(0, 5).map(item => {
-                const score = item.risk_score ?? 0;
-                const band  = getRiskBand(score);
                 return `
                 <div class="flex items-center gap-3 px-4 py-3">
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2 mb-0.5">
                             <span class="text-xs font-medium text-slate-900 truncate">${escapeHtml(item.sender || '(unknown)')}</span>
-                            <span class="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0" style="color:${band.color};background:${band.bg};border:1px solid ${band.border}">${band.label}</span>
+                            ${riskBandPill(item.risk_score)}
                         </div>
                         <p class="text-xs text-slate-500 truncate">${escapeHtml(item.subject || '(no subject)')}</p>
                     </div>
