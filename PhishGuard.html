@@ -1086,7 +1086,6 @@ outline-offset: 2px;
                                         <h3 class="text-sm font-medium uppercase tracking-wider mb-2" style="color:rgba(255,255,255,0.8)">Risk Assessment</h3>
                                         <div id="detail-band-icon" style="font-size:32px;line-height:1;margin-bottom:6px" aria-hidden="true">🛡</div>
                                         <div id="detail-band-label" class="text-3xl font-bold tracking-tight">Loading</div>
-                                        <p id="detail-risk-score-small" class="mt-1 text-sm" style="color:rgba(255,255,255,0.75)">Score: —/100</p>
                                         <p id="detail-band-action" class="mt-2 text-sm font-medium" style="color:rgba(255,255,255,0.92)"></p>
                                     </div>
                                     <div class="p-6">
@@ -2098,7 +2097,7 @@ outline-offset: 2px;
             },
             {
                 match: ["92", "bank", "risk", "score"],
-                response: "The bank-verification sample scores 92/100 because the displayed link differs from the destination, SPF/DKIM/DMARC fail, and the message uses urgent account-lock language."
+                response: "The bank-verification sample lands in the Critical Threat band because the displayed link differs from the destination, SPF/DKIM/DMARC fail, and the message uses urgent account-lock language."
             }
         ];
 
@@ -2984,7 +2983,7 @@ outline-offset: 2px;
                 return `<span style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:#f3f4f6;color:#6b7280;border:1px solid #e5e7eb">Pending</span>`;
             }
             const b = getRiskBand(score);
-            return `<span title="Score: ${score}/100" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${b.bg};color:${b.color};border:1px solid ${b.border};white-space:nowrap">${b.icon} ${b.label}</span>`;
+            return `<span title="${b.action}" style="display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;background:${b.bg};color:${b.color};border:1px solid ${b.border};white-space:nowrap">${b.icon} ${b.label}</span>`;
         }
 
         // Display-only role label mapping — backend role values stay 'admin'/'analyst'.
@@ -4220,7 +4219,6 @@ outline-offset: 2px;
             const band  = getRiskBand(score);
             setText("detail-band-icon",  band.icon);
             setText("detail-band-label", band.label);
-            setText("detail-risk-score-small", `Score: ${email.risk_score ?? '—'}/100`);
             setText("detail-band-action", band.action);
 
             // Plain-English explanation
@@ -4655,8 +4653,7 @@ outline-offset: 2px;
                     <div style="width:38px;height:38px;background:white;border:1px solid ${band.border};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:18px;color:${band.color};flex-shrink:0" aria-hidden="true">${band.icon}</div>
                     <div style="flex:1;min-width:0">
                         <h4 style="font-size:16px;font-weight:700;color:${band.color};margin:0">${band.label}</h4>
-                        <p style="font-size:11px;color:#9CA3AF;margin:1px 0 6px">Score: ${score}/100</p>
-                        <p style="font-size:13px;font-weight:500;color:#374151;margin:0 0 4px">${band.action}</p>
+                        <p style="font-size:13px;font-weight:500;color:#374151;margin:6px 0 4px">${band.action}</p>
                         ${result.explanation ? `<p style="font-size:12px;color:#6B7280;margin:0;line-height:1.5">${escapeHtml(result.explanation)}</p>` : ''}
                         ${ctaBtn}
                     </div>
