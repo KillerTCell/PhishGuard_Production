@@ -128,9 +128,55 @@ outline-offset: 2px;
         mobile <768px → centered. Background is decorative CSS only (no img element, no aria).
     -->
     <div id="login-view"
-         class="fixed inset-0 flex items-center justify-center md:justify-start z-50 transition-opacity duration-300 overflow-auto py-8 sm:py-10 px-4 md:pl-[5%] lg:pl-[10%]"
+         class="fixed inset-0 flex flex-col items-center justify-start z-50 transition-opacity duration-300 overflow-auto py-8 sm:py-10 px-4 gap-6"
          style="background-image: url('login-background.svg'); background-size: cover; background-position: center; background-repeat: no-repeat; min-height: 100vh;">
 
+        <!-- ═══════════════════════════════════════════════════════
+             QUICK CHECK — no account needed
+             ═══════════════════════════════════════════════════════ -->
+        <div id="quick-check-section" class="relative z-10 w-full max-w-[480px] bg-white/95 backdrop-blur-xl rounded-3xl shadow-[0_24px_70px_rgba(15,23,42,0.12)] border border-slate-200/80 p-7 sm:p-9">
+            <div class="flex items-start mb-5">
+                <div class="w-10 h-10 bg-indigo-50 rounded-2xl flex items-center justify-center mr-3 shrink-0">
+                    <iconify-icon icon="solar:shield-check-linear" class="text-indigo-600 text-xl" aria-hidden="true"></iconify-icon>
+                </div>
+                <div>
+                    <h2 class="text-lg font-semibold text-slate-900 leading-tight">Is this email safe?</h2>
+                    <p class="text-xs text-slate-500 mt-0.5">Paste it below. Get an instant AI verdict. No account needed.</p>
+                </div>
+            </div>
+
+            <textarea id="qc-input" rows="5"
+                placeholder="Paste the full email here — headers and body..."
+                class="w-full text-sm rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all text-slate-900 resize-y mb-3"
+                aria-label="Email content to check"></textarea>
+
+            <p id="qc-error" class="hidden text-xs text-rose-600 font-medium mb-2" aria-live="polite"></p>
+
+            <div id="qc-result" class="hidden mb-4"></div>
+
+            <div class="flex gap-2.5">
+                <button type="button" onclick="loadPublicSample()"
+                    class="flex-none text-sm px-4 py-2.5 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors flex items-center gap-1.5 whitespace-nowrap">
+                    <iconify-icon icon="solar:bug-linear" class="text-base shrink-0" aria-hidden="true"></iconify-icon>
+                    Load sample
+                </button>
+                <button type="button" id="qc-btn" onclick="handlePublicCheck()"
+                    class="flex-1 bg-indigo-600 text-white font-medium text-sm py-2.5 rounded-xl shadow-sm hover:bg-indigo-700 transition-colors flex items-center justify-center gap-1.5 h-11">
+                    Check this email
+                    <iconify-icon icon="solar:arrow-right-linear" class="text-base shrink-0" aria-hidden="true"></iconify-icon>
+                </button>
+            </div>
+
+            <p class="mt-4 text-center text-xs text-slate-500">
+                Want to save results and collaborate?
+                <button type="button" onclick="switchAuthMode('signup')"
+                    class="font-medium text-indigo-600 hover:text-indigo-700 transition-colors">Sign up free</button>
+            </p>
+        </div>
+
+        <!-- ═══════════════════════════════════════════════════════
+             AUTH CARD — sign in / sign up / forgot password
+             ═══════════════════════════════════════════════════════ -->
         <section id="auth-card" class="relative z-10 w-full max-w-[460px] bg-white/95 backdrop-blur-xl rounded-3xl shadow-[0_24px_70px_rgba(15,23,42,0.12)] border border-slate-200/80 p-7 sm:p-9" aria-labelledby="auth-heading">
 
             <!-- Logo — always visible -->
@@ -2790,6 +2836,94 @@ outline-offset: 2px;
 
         function setInputInvalid(inputId, invalid) {
             document.getElementById(inputId)?.setAttribute("aria-invalid", String(invalid));
+        }
+
+        // ─── Public Quick Check ────────────────────────────────────────
+
+        async function handlePublicCheck() {
+            const input   = document.getElementById('qc-input');
+            const errorEl = document.getElementById('qc-error');
+            const btn     = document.getElementById('qc-btn');
+            const resultEl = document.getElementById('qc-result');
+
+            errorEl.classList.add('hidden');
+            resultEl.classList.add('hidden');
+
+            if (!input.value.trim()) {
+                errorEl.textContent = 'Please paste an email before checking.';
+                errorEl.classList.remove('hidden');
+                input.focus();
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<iconify-icon icon="solar:refresh-linear" class="text-base animate-spin" aria-hidden="true"></iconify-icon>&nbsp;Checking…';
+
+            try {
+                const res = await fetch(`${API_BASE}/analysis/public-check`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw_content: input.value }),
+                });
+                if (res.status === 429) {
+                    errorEl.textContent = 'Too many checks — please wait a minute and try again.';
+                    errorEl.classList.remove('hidden');
+                    return;
+                }
+                if (!res.ok) throw new Error('analysis_failed');
+                const data = await res.json();
+                _renderPublicCheckResult(data);
+            } catch (_) {
+                errorEl.textContent = 'Check failed. The service may be starting up — please try again in a moment.';
+                errorEl.classList.remove('hidden');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Check this email <iconify-icon icon="solar:arrow-right-linear" class="text-base shrink-0" aria-hidden="true"></iconify-icon>';
+            }
+        }
+
+        function _renderPublicCheckResult(data) {
+            const resultEl = document.getElementById('qc-result');
+            const label = data.risk_label || 'safe';
+            const _colorMap = {
+                critical:   { bg: 'bg-rose-50',   border: 'border-rose-200',   text: 'text-rose-700',   badge: 'Phishing'    },
+                high:       { bg: 'bg-orange-50',  border: 'border-orange-200', text: 'text-orange-700', badge: 'High Risk'   },
+                suspicious: { bg: 'bg-amber-50',   border: 'border-amber-200',  text: 'text-amber-700',  badge: 'Suspicious'  },
+                low:        { bg: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700',badge: 'Likely Safe' },
+                safe:       { bg: 'bg-emerald-50', border: 'border-emerald-200',text: 'text-emerald-700',badge: 'Safe'        },
+            };
+            const c = _colorMap[label] || _colorMap['safe'];
+            const topFeatures = (data.top_features || []).filter(f => f.score > 0);
+            const featHtml = topFeatures.length
+                ? `<ul class="mt-2.5 space-y-1 text-xs text-slate-600">${topFeatures.map(f =>
+                    `<li class="flex items-center gap-1.5">
+                        <iconify-icon icon="solar:danger-triangle-linear" class="text-amber-500 shrink-0 text-sm" aria-hidden="true"></iconify-icon>
+                        ${escapeHtml(f.name.replace(/_/g, ' '))}
+                    </li>`).join('')}</ul>`
+                : '';
+            resultEl.innerHTML = `
+                <div class="rounded-xl border ${c.border} ${c.bg} p-4">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-sm font-semibold ${c.text}">${escapeHtml(c.badge)}</span>
+                        <span class="text-xs font-medium text-slate-400">Risk score: ${data.risk_score}/100</span>
+                    </div>
+                    <p class="text-xs text-slate-700 leading-relaxed">${escapeHtml(data.explanation || '')}</p>
+                    ${featHtml}
+                </div>`;
+            resultEl.classList.remove('hidden');
+        }
+
+        async function loadPublicSample() {
+            try {
+                const res = await fetch(`${API_BASE}/analysis/sample`);
+                if (!res.ok) throw new Error('failed');
+                const data = await res.json();
+                document.getElementById('qc-input').value = data.raw_source || '';
+            } catch (_) {
+                document.getElementById('qc-input').value =
+`From: security-alert@paypa1-secure.com\r\nTo: you@example.com\r\nSubject: Urgent: Verify your PayPal account immediately\r\n\r\nDear Customer,\r\n\r\nYour PayPal account has been temporarily limited due to unauthorized access.\r\nPlease verify your account immediately:\r\nhttp://paypa1-secure.com/verify?token=abc123\r\n\r\nFailure to verify within 24 hours will result in account suspension.\r\n\r\nPayPal Security Team`;
+            }
+            handlePublicCheck();
         }
 
         // ─── Auth mode switcher ────────────────────────────────────────

@@ -183,3 +183,28 @@ class AssistantRequest(BaseModel):
 
     messages: list[AssistantMessage] = Field(min_length=1, max_length=50)
     local_mode: bool = False
+
+
+# ---------------------------------------------------------------------------
+# POST /analysis/public-check
+# ---------------------------------------------------------------------------
+
+
+class PublicCheckRequest(BaseModel):
+    """Unauthenticated quick-check payload. max_length mirrors /paste (S-03)."""
+
+    raw_content: str = Field(min_length=1, max_length=500_000)
+
+
+class PublicCheckTopFeature(BaseModel):
+    name: str
+    score: float
+
+
+class PublicCheckResponse(BaseModel):
+    """Instant ML result returned to unauthenticated users."""
+
+    risk_score: int
+    risk_label: str
+    explanation: str
+    top_features: list[PublicCheckTopFeature]

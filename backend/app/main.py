@@ -23,10 +23,10 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-from slowapi.util import get_remote_address
+
 
 from app.core.config import settings
 
@@ -51,14 +51,10 @@ logger = structlog.get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Rate limiter (slowapi) — backed by Redis, shared across workers
+# Rate limiter (slowapi) — shared singleton; defined in app.core.limiter
 # ---------------------------------------------------------------------------
 
-limiter = Limiter(
-    key_func=get_remote_address,   # overridden per-route for user_id limits
-    storage_uri=settings.REDIS_URL,
-    default_limits=["200 per minute"],  # global safety net
-)
+from app.core.limiter import limiter  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

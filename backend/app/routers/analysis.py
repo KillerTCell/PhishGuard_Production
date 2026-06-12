@@ -1,10 +1,11 @@
 """Section 4.3 -- FR-03, FR-04, Dashboard: Analysis and stats endpoints.
 
-POST /analysis/paste        -- paste raw email source (S-03: max_length=500000)
-GET  /analysis/sample       -- load demo .eml for 'Load Sample' button
-GET  /analysis/{id}/status  -- lightweight polling fallback before SSE
-GET  /analysis/stats        -- dashboard cards + charts (A-09, A-12 fixes)
-GET  /dashboard/insights    -- AI insights panel (Redis cache 60 s)
+POST /analysis/paste         -- paste raw email source (S-03: max_length=500000)
+POST /analysis/public-check  -- unauthenticated quick check (rate-limited 10/min)
+GET  /analysis/sample        -- load demo .eml for 'Load Sample' button (public)
+GET  /analysis/{id}/status   -- lightweight polling fallback before SSE
+GET  /analysis/stats         -- dashboard cards + charts (A-09, A-12 fixes)
+GET  /dashboard/insights     -- AI insights panel (Redis cache 60 s)
 """
 from __future__ import annotations
 
@@ -15,11 +16,12 @@ from typing import Optional
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings as app_settings
+from app.core.limiter import limiter
 from app.dependencies import CurrentUser, get_current_user, get_db, get_redis
 from app.models.analysis_result import AnalysisResult
 from app.models.email import Email
@@ -34,6 +36,9 @@ from app.schemas.analysis import (
     InsightItem,
     PasteAnalysisRequest,
     PasteAnalysisResponse,
+    PublicCheckRequest,
+    PublicCheckResponse,
+    PublicCheckTopFeature,
     RecentQuarantinedItem,
     SampleEmailResponse,
     SeverityDistribution,
@@ -139,6 +144,123 @@ async def paste_analysis(
 
 
 # ---------------------------------------------------------------------------
+# POST /analysis/public-check  (unauthenticated, rate-limited)
+# ---------------------------------------------------------------------------
+
+_PUBLIC_FEAT_ORDER = [
+    "urgency_language",
+    "credential_request",
+    "link_mismatch",
+    "impersonation_language",
+    "auth_failure",
+    "grammar_quality",
+    "known_bad_url",
+]
+
+_PUBLIC_FEAT_LABELS: dict[str, str] = {
+    "urgency_language":       "uses urgent or threatening language",
+    "credential_request":     "requests login credentials or personal data",
+    "impersonation_language": "impersonates a known brand or authority",
+    "grammar_quality":        "contains poor grammar typical of phishing",
+    "link_mismatch":          "contains links where display text doesn't match the URL",
+    "auth_failure":           "failed SPF/DKIM/DMARC email authentication",
+    "known_bad_url":          "contains URLs from known phishing lists",
+}
+
+
+def _public_explanation(risk_score: int, top: list[dict]) -> str:
+    active = [f for f in top if f["score"] > 0]
+    if not active:
+        return "No strong phishing indicators detected in this email."
+    parts = " and ".join(
+        _PUBLIC_FEAT_LABELS.get(f["name"], f["name"].replace("_", " ")) for f in active[:2]
+    )
+    if risk_score >= 70:
+        return f"This email is likely phishing: it {parts}."
+    if risk_score >= 30:
+        return f"This email shows suspicious signs: it {parts}."
+    return "This email appears safe — no strong phishing indicators detected."
+
+
+@router.post(
+    "/analysis/public-check",
+    response_model=PublicCheckResponse,
+    summary="Unauthenticated quick-check — ML only, result not saved",
+)
+@limiter.limit("10/minute")
+async def public_check(
+    request: Request,
+    body: PublicCheckRequest,
+    redis: aioredis.Redis = Depends(get_redis),
+) -> PublicCheckResponse:
+    """Rate-limited (10/min per IP), no JWT required, no DB write.
+
+    Parses raw_content as .eml if it has RFC 2822 headers; otherwise treats
+    it as plain text. Runs the 7-feature NLP pipeline then the ML classifier.
+    """
+    from app.services.email_parser import parse_eml  # noqa: PLC0415
+    from app.services.ml_classifier import ModelNotFoundError, classify  # noqa: PLC0415
+    from app.services.nlp_pipeline import extract_all_features  # noqa: PLC0415
+
+    try:
+        parsed = parse_eml(body.raw_content.encode("utf-8", errors="replace"))
+        email_dict: dict = {
+            "body_text": parsed.get("body_text") or body.raw_content,
+            "links":     parsed.get("links") or [],
+            "spf":       parsed.get("spf") or "none",
+            "dkim":      parsed.get("dkim") or "none",
+            "dmarc":     parsed.get("dmarc") or "none",
+            "sender":    parsed.get("sender") or "",
+        }
+    except Exception:
+        email_dict = {
+            "body_text": body.raw_content,
+            "links":     [],
+            "spf":       "none",
+            "dkim":      "none",
+            "dmarc":     "none",
+            "sender":    "",
+        }
+
+    features = await extract_all_features(email_dict, redis)
+    feat_map = {f.feature_name: f.score_contribution for f in features}
+    feature_vector = [feat_map.get(name, 0.0) for name in _PUBLIC_FEAT_ORDER]
+
+    try:
+        clf = classify(feature_vector)
+    except ModelNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="ML model not ready — please try again shortly.",
+        )
+
+    risk_score: int = clf["risk_score"]
+    risk_label: str = clf["severity"]
+
+    top_features = sorted(
+        [{"name": f.feature_name, "score": f.score_contribution} for f in features],
+        key=lambda x: x["score"],
+        reverse=True,
+    )[:3]
+
+    explanation = _public_explanation(risk_score, top_features)
+
+    logger.info(
+        "public_check_complete",
+        risk_score=risk_score,
+        risk_label=risk_label,
+        ip=request.client.host if request.client else "unknown",
+    )
+
+    return PublicCheckResponse(
+        risk_score=risk_score,
+        risk_label=risk_label,
+        explanation=explanation,
+        top_features=[PublicCheckTopFeature(**f) for f in top_features],
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /analysis/sample
 # ---------------------------------------------------------------------------
 
@@ -148,13 +270,11 @@ async def paste_analysis(
     response_model=SampleEmailResponse,
     summary="Load demo phishing sample for 'Load Sample' button",
 )
-async def get_sample(
-    current_user: CurrentUser = Depends(get_current_user),
-) -> SampleEmailResponse:
+async def get_sample() -> SampleEmailResponse:
     """Return a hardcoded realistic phishing sample from DEMO_SAMPLE_EML config.
 
-    No DB write.  Used by the 'Load Sample' button on the Paste Analysis page
-    (UI Figure 8).
+    Public endpoint — no auth required. Used by the Quick Check 'Load sample'
+    button and the authenticated Paste Analysis page.
     """
     sample_path = app_settings.DEMO_SAMPLE_EML
     if sample_path:
