@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     """Anthropic Claude API key — FR-04 explanation engine + AI assistant."""
 
     RESEND_API_KEY: str
+    RESEND_FROM_EMAIL: str = "PhishGuard <noreply@phishguard.io>"
     """Resend transactional email API key — FR-06 digest delivery."""
 
     # ── Application ─────────────────────────────────────────────────────────
@@ -66,7 +67,7 @@ class Settings(BaseSettings):
     FORWARDING_DOMAIN: str = "phishguard.app"
     """Domain used to build forwarding inbox slugs (scan+<slug>@<domain>)."""
 
-    FRONTEND_URL: str = "https://localhost"
+    FRONTEND_URL: str = "https://phishingguard.up.railway.app"
     """Base URL of the frontend — used to build deep links in outbound emails
     (e.g. the help-request 'View this email' link)."""
 

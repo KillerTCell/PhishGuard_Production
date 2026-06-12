@@ -145,7 +145,7 @@ async def _send_email(to: str, subject: str, html: str) -> None:
     """
     try:
         _resend.api_key = settings.RESEND_API_KEY
-        sender = "PhishGuard <onboarding@resend.dev>"
+        sender = settings.RESEND_FROM_EMAIL
         params: _resend.Emails.SendParams = {
             "from": sender,
             "to": [to],
