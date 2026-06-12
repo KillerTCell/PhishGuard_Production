@@ -68,7 +68,7 @@ class Settings(BaseSettings):
 
     FRONTEND_URL: str = "https://localhost"
     """Base URL of the frontend — used to build deep links in outbound emails
-    (e.g. the help-request 'View and analyse this email' link)."""
+    (e.g. the help-request 'View this email' link)."""
 
     DEMO_SAMPLE_EML: str = ""
     """Raw .eml content for the 'Load Demo Sample' button (UI Figure 8).

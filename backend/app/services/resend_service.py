@@ -463,7 +463,7 @@ def build_help_request_html(
           font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
           letter-spacing:0.01em;
         " role="button"
-           aria-label="View and analyse this email in PhishGuard">View and analyse this email &rarr;</a>
+           aria-label="View this email in PhishGuard">View this email &rarr;</a>
       </div>
     </div>
 
