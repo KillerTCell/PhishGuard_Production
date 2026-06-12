@@ -51,8 +51,7 @@ def _read_metrics() -> dict:
         try:
             return json.loads(metrics_path.read_text())
         except Exception:
-            pass
-    return {}
+            return {}
 
 
 def _eml_body_text(raw_bytes: bytes) -> str:
@@ -70,8 +69,7 @@ def _eml_body_text(raw_bytes: bytes) -> str:
             if payload:
                 return payload.decode("utf-8", errors="replace").strip()
     except Exception:
-        pass
-    return raw_bytes.decode("utf-8", errors="replace").strip()
+        return raw_bytes.decode("utf-8", errors="replace").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -289,6 +287,12 @@ async def trigger_retrain(
         )
     )
     total = count_q.scalar_one()
+
+    if total < 10:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Need at least 10 labelled samples to retrain — currently have {total}.",
+        )
 
     from app.tasks.training_tasks import retrain_model  # noqa: PLC0415
 
