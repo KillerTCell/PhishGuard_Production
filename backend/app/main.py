@@ -81,7 +81,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info(
         "phishguard_startup",
         model_version=settings.MODEL_VERSION,
-        forwarding_domain=settings.FORWARDING_DOMAIN,
     )
     yield
     # Close the shared Redis pool on shutdown
@@ -222,7 +221,6 @@ def create_app() -> FastAPI:
         /api/v1/dashboard     routers/analysis.py   Section 4.3 (GET /insights)
         /api/v1/quarantine    routers/quarantine.py Section 4.4
         /api/v1/analysis      routers/assistant.py  Section 4.5 (/assistant)
-        /api/v1/forwarding    routers/forwarding.py Section 4.6
         /api/v1/feedback      routers/feedback.py   Section 4.7
         /api/v1/digest        routers/digest.py     Section 4.7 (/action)
         /api/v1/settings      routers/settings.py   Section 4.8
@@ -370,7 +368,6 @@ def create_app() -> FastAPI:
     from app.routers.digest import router as digest_router
     from app.routers.feedback import router as feedback_router
     from app.routers.settings import router as settings_router
-    from app.routers.forwarding import router as forwarding_router
     from app.routers.users import router as users_router
     from app.routers.events import router as events_router
     from app.routers.notifications import router as notifications_router
@@ -386,7 +383,6 @@ def create_app() -> FastAPI:
     app.include_router(digest_router,        prefix=_V1)
     app.include_router(feedback_router,      prefix=_V1)
     app.include_router(settings_router,      prefix=_V1)
-    app.include_router(forwarding_router,    prefix=_V1)
     app.include_router(users_router,         prefix=_V1)
     app.include_router(events_router,        prefix=_V1)
     app.include_router(notifications_router, prefix=_V1)

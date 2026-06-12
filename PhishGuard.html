@@ -407,10 +407,6 @@ outline-offset: 2px;
                             <iconify-icon icon="solar:magnifer-linear" class="mr-3 text-lg nav-icon text-slate-400" stroke-width="1.5"></iconify-icon>
                             Analyse Email
                         </button>
-                        <button type="button" data-target="forwarding-inbox" onclick="navigate('forwarding-inbox')" class="nav-btn w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
-                            <iconify-icon icon="solar:mailbox-linear" class="mr-3 text-lg nav-icon text-slate-400" stroke-width="1.5"></iconify-icon>
-                            Forwarding Inbox
-                        </button>
                         <button type="button" data-target="ai-assistant" onclick="navigate('ai-assistant')" class="nav-btn w-full flex items-center px-3 py-2.5 text-sm font-medium rounded-xl text-slate-600 hover:bg-slate-50 hover:text-slate-900 transition-colors">
                             <iconify-icon icon="solar:smart-speaker-linear" class="mr-3 text-lg nav-icon text-slate-400" stroke-width="1.5"></iconify-icon>
                             AI Assistant
@@ -552,7 +548,7 @@ outline-offset: 2px;
                         </div>
                         <div class="flex-1 min-w-0">
                             <p class="text-sm font-semibold text-indigo-900">Welcome, <span id="role-banner-name">Contributor</span> — you're signed in with Contributor access.</p>
-                            <p class="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">You have access to email review, analysis tools, the forwarding inbox, and the AI assistant. Settings and User Management are available to workspace owners.</p>
+                            <p class="text-xs text-indigo-700/80 mt-0.5 leading-relaxed">You have access to email review, analysis tools, the AI assistant. Settings and User Management are available to workspace owners.</p>
                         </div>
                         <button type="button" onclick="dismissRoleBanner()" aria-label="Dismiss welcome banner" class="text-indigo-400 hover:text-indigo-700 transition-colors p-1 -m-1 shrink-0">
                             <iconify-icon icon="solar:close-circle-linear" class="text-xl" stroke-width="1.5" aria-hidden="true"></iconify-icon>
@@ -769,87 +765,6 @@ outline-offset: 2px;
                         </div>
                     </div>
 
-                    <!-- PAGE: Forwarding Inbox -->
-                    <div id="page-forwarding-inbox" class="page-section hidden">
-                        <div class="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-4">
-                            <div>
-                                <h1 class="text-2xl font-semibold text-slate-900 tracking-tight mb-1">Forwarding Inbox</h1>
-                                <p class="text-sm text-slate-500">Ongoing ingestion path — forward suspicious emails from Gmail or Outlook to PhishGuard's dedicated address for automatic analysis.</p>
-                            </div>
-                            <button type="button" onclick="runForwardingTest()" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-medium flex items-center hover:bg-slate-800 transition-colors shadow-sm">
-                                <iconify-icon icon="solar:letter-opened-linear" class="mr-2 text-lg" stroke-width="1.5"></iconify-icon>
-                                Send Test Message
-                            </button>
-                        </div>
-
-                        <div class="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-                            <section class="lg:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm p-5" aria-labelledby="forwarding-address-heading">
-                                <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                                    <div>
-                                        <h2 id="forwarding-address-heading" class="text-lg font-semibold tracking-tight text-slate-900">Dedicated forwarding address</h2>
-                                        <p class="text-sm text-slate-500 mt-1">Forward suspicious emails to this address for automated analysis.</p>
-                                    </div>
-                                    <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-100 self-start">Ready</span>
-                                </div>
-                                <div class="mt-3 flex flex-col sm:flex-row gap-3">
-                                    <code id="forward-address" class="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-800 break-all"></code>
-                                    <button type="button" onclick="copyAddress()" class="bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-sm font-medium hover:bg-slate-50 shadow-sm transition-colors">
-                                        Copy Address
-                                    </button>
-                                </div>
-                                <p id="forward-copy-status" class="hidden text-xs text-emerald-600 font-medium mt-3" aria-live="polite"></p>
-                            </section>
-
-                            <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5" aria-labelledby="forwarding-test-heading">
-                                <h2 id="forwarding-test-heading" class="text-lg font-semibold tracking-tight text-slate-900 mb-2">Test flow</h2>
-                                <div id="forward-test-default" class="text-sm text-slate-500">Send a sample forwarded email to confirm the frontend state changes.</div>
-                                <div id="forward-test-progress" class="hidden" aria-live="polite">
-                                    <div class="w-full h-2 bg-slate-100 rounded-full overflow-hidden mb-3">
-                                        <div id="fw-progress-bar" class="h-full bg-indigo-600 rounded-full transition-all duration-500" style="width: 0%"></div>
-                                    </div>
-                                    <p id="fw-progress-text" class="text-xs text-slate-500">Preparing message...</p>
-                                </div>
-                                <div id="forward-test-result" class="hidden bg-emerald-50 border border-emerald-100 rounded-xl p-4 text-sm text-emerald-700" aria-live="polite"></div>
-                            </section>
-                        </div>
-
-                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
-                            <section class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
-                                <h2 class="text-lg font-semibold tracking-tight text-slate-900 mb-3">Connector status</h2>
-                                <div id="forwarding-connectors" class="space-y-3"></div>
-                            </section>
-
-                            <section class="xl:col-span-2 bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                                <div class="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-                                    <h2 class="text-lg font-semibold tracking-tight text-slate-900">Recent forwarded emails</h2>
-                                    <span id="forwarded-count" class="text-xs text-slate-500">0 messages</span>
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-left border-collapse min-w-[680px]">
-                                        <thead>
-                                            <tr class="bg-slate-50/50 border-b border-slate-200 text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                                                <th scope="col" class="px-4 py-3">Received</th>
-                                                <th scope="col" class="px-4 py-3">Sender &amp; Subject</th>
-                                                <th scope="col" class="px-4 py-3">Risk</th>
-                                                <th scope="col" class="px-4 py-3">Status</th>
-                                                <th scope="col" class="px-4 py-3 text-right">Action</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="forwarded-email-body" class="divide-y divide-slate-100 text-sm"></tbody>
-                                    </table>
-                                </div>
-                            </section>
-                        </div>
-
-                        <details class="mt-5 bg-white rounded-2xl border border-slate-200 shadow-sm p-4">
-                            <summary class="cursor-pointer text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 rounded-lg">Setup instructions</summary>
-                            <ol class="mt-3 space-y-2 text-sm text-slate-600 list-decimal list-inside">
-                                <li>Copy the forwarding address above.</li>
-                                <li>Forward suspicious messages from the source mailbox.</li>
-                                <li>Production forwarding requires backend mailbox ingestion and protected processing.</li>
-                            </ol>
-                        </details>
-                    </div>
 
 
                     <!-- PAGE: User Management -->
@@ -2186,21 +2101,6 @@ outline-offset: 2px;
             ]
         };
 
-        const DEMO_FORWARDING_ADDRESS = "scan@forward.phishguard.test";
-        const DEMO_FORWARDING_CONNECTORS = [
-            { name: "Forwarding alias", status: "Ready", description: "Dedicated address is available for test forwarding." },
-            { name: "Mailbox intake", status: "Needs backend", description: "Production ingestion must be handled by the server." },
-            { name: "Analysis queue", status: "Active", description: "Forwarded messages enter the analysis queue automatically." }
-        ];
-        const DEMO_FORWARDED_EMAILS = [
-            { emailId: "email-002", received: "Today, 08:15 AM", sender: "billing@cloud-invoice.test", subject: "Invoice #49281 payment failed", riskScore: 58, status: "Flagged" },
-            { emailId: "email-004", received: "Today, 07:55 AM", sender: "alerts@parcel-review.test", subject: "Failed delivery confirmation required", riskScore: 81, status: "Quarantined" },
-            { emailId: "email-003", received: "Yesterday, 14:30 PM", sender: "updates@internal-notes.test", subject: "Weekly project sync notes", riskScore: 12, status: "Delivered" }
-        ];
-        const DEMO_FORWARDING_TEST_RESULT = {
-            message: "Forwarded message received and queued for analysis."
-        };
-
         const DEMO_EXPORT_SCOPE = {
             emails: 1248,
             phishing: 42,
@@ -2210,7 +2110,7 @@ outline-offset: 2px;
         };
         const DEMO_EXPORT_PREVIEW_ROWS = [
             { subject: "Urgent: Verify your account immediately", label: "Phishing", riskScore: 92, source: "Quarantine" },
-            { subject: "Invoice #49281 payment failed", label: "Needs review", riskScore: 58, source: "Forwarding" },
+            { subject: "Invoice #49281 payment failed", label: "Needs review", riskScore: 58, source: "Uploaded" },
             { subject: "Weekly project sync notes", label: "Safe", riskScore: 12, source: "Delivered" },
             { subject: "Updated Payroll Documents Q3", label: "Phishing", riskScore: 66, source: "Quarantine" }
         ];
@@ -2382,23 +2282,6 @@ outline-offset: 2px;
                         title:     'Thresholds Updated',
                         message:   'Detection thresholds changed by an admin',
                         severity:  'warning',
-                        timestamp: new Date().toISOString(),
-                    });
-                    break;
-                case 'forwarding_test_complete':
-                    if (currentPage === 'forwarding-inbox') {
-                        hideElement(document.getElementById('forward-test-progress'));
-                        const rc = document.getElementById('forward-test-result');
-                        if (rc) { rc.textContent = 'Test email received and queued for analysis.'; showElement(rc); }
-                    }
-                    break;
-                case 'imap_ingested':
-                    setTimeout(renderDashboard, 800);
-                    addNotification({
-                        event:     'imap_ingested',
-                        title:     'New Forwarded Email',
-                        message:   `Email from ${data.sender || 'unknown'} received`,
-                        severity:  'info',
                         timestamp: new Date().toISOString(),
                     });
                     break;
@@ -2773,7 +2656,6 @@ outline-offset: 2px;
             "quarantine":       "Quarantine",
             "email-detail":     "Email Analysis",
             "analyse-email":    "Analyse Email",
-            "forwarding-inbox": "Forwarding Inbox",
             "settings":         "Settings",
             "user-management":  "User Management",
             "ai-assistant":     "AI Assistant",
@@ -2790,7 +2672,6 @@ outline-offset: 2px;
         let selectedUploadFile = null;
         let uploadTimerIds = [];
         let _emlFileQueue = [];   // Array of File objects for bulk upload
-        let forwardingTimerIds = [];
         let systemUsersState = [];
         let currentDigestItems = [];
         let conversationHistory = [];
@@ -3793,8 +3674,6 @@ outline-offset: 2px;
                 // Reset to default Paste tab on each entry.
                 resetAnalyseTab();
                 renderUploadFileZone();
-            } else if (pageId === "forwarding-inbox") {
-                renderForwardingInbox();
             } else if (pageId === "settings") {
                 resetSettingsTab();
                 renderSettings();
@@ -5084,138 +4963,6 @@ outline-offset: 2px;
             clearUploadTimers();
             clearFileQueue();
             showUploadMessage('Upload zone reset.', 'info');
-        }
-
-        // =====================================================
-        // FORWARDING INBOX
-        // =====================================================
-
-        async function renderForwardingInbox() {
-            // GET /forwarding — address + connector status + setup instructions
-            let fwdStatus = null;
-            try {
-                const resp = await apiFetch('/forwarding');
-                if (resp.ok) fwdStatus = await resp.json();
-            } catch (_) {}
-
-            const forwardingAddress = fwdStatus?.forwarding_address || currentUser?.forwarding_address || "—";
-            setText("forward-address", forwardingAddress);
-
-            const connectorContainer = document.getElementById("forwarding-connectors");
-            if (connectorContainer && fwdStatus) {
-                const cs = fwdStatus.connector_status;
-                const statusClass = cs === "active"
-                    ? "bg-emerald-50 text-emerald-700 border-emerald-100"
-                    : cs === "error"
-                        ? "bg-rose-50 text-rose-700 border-rose-100"
-                        : "bg-amber-50 text-amber-700 border-amber-100";
-                const label = cs === "active" ? "Active" : cs === "error" ? "Error" : "Unconfigured";
-                const instructions = (fwdStatus.setup_instructions || []).map(i => `<p class="text-xs text-slate-500 mt-1">Step ${i.step}: ${escapeHtml(i.text)}</p>`).join("");
-                connectorContainer.innerHTML = `
-                    <div class="border border-slate-100 rounded-xl p-4">
-                        <div class="flex items-start justify-between gap-3">
-                            <div>
-                                <h3 class="text-sm font-semibold text-slate-900">IMAP Connector</h3>
-                                ${fwdStatus.imap_user ? `<p class="text-xs text-slate-500 mt-1">Connected as ${escapeHtml(fwdStatus.imap_user)}</p>` : instructions}
-                            </div>
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-semibold uppercase tracking-wider border ${statusClass}">${label}</span>
-                        </div>
-                    </div>`;
-            }
-
-            // GET /forwarding/emails — paginated list
-            let fwdEmails = [];
-            try {
-                const resp = await apiFetch('/forwarding/emails?page_size=20');
-                if (resp.ok) {
-                    const data = await resp.json();
-                    fwdEmails = data.items || [];
-                }
-            } catch (_) {}
-
-            setText("forwarded-count", `${fwdEmails.length} messages`);
-            const tableBody = document.getElementById("forwarded-email-body");
-            if (!tableBody) return;
-            tableBody.innerHTML = fwdEmails.length ? fwdEmails.map(email => {
-                const lbl   = statusLabel(email.status);
-                const score = email.risk_score ?? 0;
-                return `
-                <tr class="hover:bg-slate-50/50 transition-colors">
-                    <td class="px-6 py-4 text-slate-500 whitespace-nowrap">${escapeHtml(formatReceived(email.ingested_at))}</td>
-                    <td class="px-6 py-4 max-w-xs">
-                        <div class="font-medium text-slate-900 truncate">${escapeHtml(email.sender || '(unknown)')}</div>
-                        <div class="text-slate-500 truncate text-xs mt-0.5">${escapeHtml(email.subject || '(no subject)')}</div>
-                    </td>
-                    <td class="px-6 py-4">${riskBandPill(email.risk_score)}</td>
-                    <td class="px-6 py-4"><span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium ${getStatusBadgeClass(lbl)}">${escapeHtml(lbl)}</span></td>
-                    <td class="px-6 py-4 text-right">
-                        <button type="button" onclick="openEmailDetail('${email.id}')" class="text-indigo-600 hover:text-indigo-800 font-medium text-xs px-2 py-1">View</button>
-                    </td>
-                </tr>`;
-            }).join("") : `
-                <tr><td colspan="5" class="px-6 py-10 text-center text-slate-500 text-sm">No forwarded emails are available.</td></tr>
-            `;
-        }
-
-        async function copyAddress() {
-            const address = document.getElementById("forward-address")?.textContent?.trim() || "";
-            const status = document.getElementById("forward-copy-status");
-            try {
-                if (navigator.clipboard?.writeText) {
-                    await navigator.clipboard.writeText(address);
-                } else {
-                    const textarea = document.createElement("textarea");
-                    textarea.value = address;
-                    textarea.setAttribute("readonly", "");
-                    textarea.style.position = "absolute";
-                    textarea.style.left = "-9999px";
-                    document.body.appendChild(textarea);
-                    textarea.select();
-                    document.execCommand("copy");
-                    textarea.remove();
-                }
-                status.textContent = "Copied to clipboard.";
-                status.classList.remove("hidden", "text-rose-600");
-                status.classList.add("text-emerald-600");
-                setTimeout(() => status.classList.add("hidden"), 2000);
-            } catch (error) {
-                status.textContent = "Copy was not available in this browser.";
-                status.classList.remove("hidden", "text-emerald-600");
-                status.classList.add("text-rose-600");
-            }
-        }
-
-        function clearForwardingTimers() {
-            forwardingTimerIds.forEach(timerId => clearTimeout(timerId));
-            forwardingTimerIds = [];
-        }
-
-        async function runForwardingTest() {
-            clearForwardingTimers();
-            hideElement(document.getElementById("forward-test-default"));
-            hideElement(document.getElementById("forward-test-result"));
-            showElement(document.getElementById("forward-test-progress"));
-            setText("fw-progress-text", "Sending test email…");
-            document.getElementById("fw-progress-bar").style.width = "30%";
-
-            try {
-                const resp = await apiFetch('/forwarding/test', { method: 'POST' });
-                document.getElementById("fw-progress-bar").style.width = "100%";
-                await wait(400);
-                hideElement(document.getElementById("forward-test-progress"));
-                const resultCard = document.getElementById("forward-test-result");
-                if (resp.ok) {
-                    const data = await resp.json();
-                    resultCard.textContent = data.message || "Test email sent. Check Recent forwarded emails.";
-                } else {
-                    resultCard.textContent = "Test email could not be sent. Check your IMAP configuration.";
-                }
-                showElement(resultCard);
-            } catch (_) {
-                hideElement(document.getElementById("forward-test-progress"));
-                showElement(document.getElementById("forward-test-default"));
-                showAppMessage("Forwarding test failed. Check your connection.");
-            }
         }
 
         // =====================================================

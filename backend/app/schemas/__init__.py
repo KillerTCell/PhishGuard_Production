@@ -82,17 +82,6 @@ from app.schemas.quarantine import (
     SendDigestResponse,
 )
 
-# Forwarding Inbox — Section 4.6
-from app.schemas.forwarding import (
-    ForwardingConfigRequest,
-    ForwardingConfigResponse,
-    ForwardingEmailItem,
-    ForwardingEmailListResponse,
-    ForwardingStatusResponse,
-    ForwardingTestResponse,
-    SetupInstruction,
-)
-
 # Feedback + Digest action — Section 4.7
 from app.schemas.feedback import (
     DigestActionParam,

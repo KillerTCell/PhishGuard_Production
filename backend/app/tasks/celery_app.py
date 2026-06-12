@@ -9,10 +9,8 @@ worker and beat services.
 Queue assignment:
     analysis    — parse, feature extraction, classify, explanation, outcome
     digest      — quarantine digest email delivery
-    forwarding  — forwarding inbox test probe
     export      — CSV export generation
     maintenance — data retention delete, monthly Postgres partition creation
-    imap        — periodic IMAP inbox polling (every 60 s)
 """
 from __future__ import annotations
 
@@ -35,7 +33,7 @@ celery_app = Celery(
     include=[
         "app.tasks.analysis_tasks",
         "app.tasks.digest_tasks",
-        "app.tasks.forwarding_tasks",
+        
         "app.tasks.export_tasks",
         "app.tasks.maintenance_tasks",
         "app.tasks.training_tasks",
@@ -46,7 +44,7 @@ celery_app = Celery(
 # Named queues  (Section 8: 6 queues)
 # ---------------------------------------------------------------------------
 
-_QUEUES = ("analysis", "digest", "forwarding", "export", "maintenance", "imap")
+_QUEUES = ("analysis", "digest", "export", "maintenance")
 
 celery_app.conf.task_queues = [Queue(name) for name in _QUEUES]
 celery_app.conf.task_default_queue = "analysis"
@@ -79,12 +77,6 @@ celery_app.conf.update(
 
     # ── Celery Beat periodic schedule ─────────────────────────────────────────
     beat_schedule={
-        # IMAP inbox poll — runs every 60 seconds across all active orgs
-        "imap-poll-all-orgs": {
-            "task": "app.tasks.analysis_tasks.imap_poll_all_orgs",
-            "schedule": 60.0,                          # seconds
-            "options": {"queue": "imap"},
-        },
         # Data-retention sweep — runs every day at 02:00 UTC
         "auto-delete-expired-emails": {
             "task": "app.tasks.maintenance_tasks.auto_delete_expired_emails",

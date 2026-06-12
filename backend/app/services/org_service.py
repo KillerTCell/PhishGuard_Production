@@ -7,6 +7,8 @@ it is created.
 from __future__ import annotations
 
 import json
+import re
+import secrets
 import uuid
 from typing import Any
 
@@ -17,7 +19,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.organisation import Organisation
-from app.services import forwarding_service
 
 log = structlog.get_logger()
 
@@ -28,8 +29,7 @@ _THRESHOLD_CACHE_TTL = 300  # seconds
 async def create_organisation(db: AsyncSession, name: str) -> Organisation:
     """Create a new Organisation row with a unique forwarding slug.
 
-    Calls :func:`~app.services.forwarding_service.generate_forwarding_slug`
-    to produce a slug, then inserts an :class:`~app.models.organisation.Organisation`
+    Inserts an :class:`~app.models.organisation.Organisation`
     using all Section 3.1 server-side defaults (``suspicious_threshold=30``,
     ``phishing_threshold=80``, ``auto_quarantine_high_risk=true``,
     ``prepend_subject_warning=true``, ``connector_status='unconfigured'``,
@@ -47,7 +47,10 @@ async def create_organisation(db: AsyncSession, name: str) -> Organisation:
     Returns:
         The newly created and refreshed Organisation ORM instance.
     """
-    slug = forwarding_service.generate_forwarding_slug(name)
+    _base = re.sub(r'[^\w\s-]', '', name.strip().lower())
+    _base = re.sub(r'[\s_]+', '-', _base)
+    _base = re.sub(r'-+', '-', _base).strip('-')[:50]
+    slug = f"{_base}-{secrets.token_hex(2)}" if _base else secrets.token_hex(4)
     org = Organisation(
         name=name,
         forwarding_address_slug=slug,
@@ -68,7 +71,6 @@ async def create_organisation(db: AsyncSession, name: str) -> Organisation:
         org_id=str(org.id),
         name=name,
         slug=slug,
-        forwarding_address=forwarding_service.build_forwarding_address(slug),
     )
     return org
 

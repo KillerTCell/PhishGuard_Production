@@ -64,7 +64,7 @@ from app.schemas.auth import (
     ResetPasswordRequest,
     UserRole,
 )
-from app.services import audit_service, forwarding_service, org_service
+from app.services import audit_service, org_service
 
 log = structlog.get_logger(__name__)
 router = APIRouter(tags=["auth"])
@@ -261,9 +261,7 @@ async def register(
                 select(Organisation).where(Organisation.id == invite.org_id)
             )
         ).scalar_one()
-        fwd_address = forwarding_service.build_forwarding_address(
-            org.forwarding_address_slug or ""
-        )
+        fwd_address = f"scan+{org.forwarding_address_slug or ''}@{settings.FORWARDING_DOMAIN}"
 
     else:
         # ── New-organisation path ─────────────────────────────────────────────
@@ -291,9 +289,7 @@ async def register(
         await db.flush()
         await db.refresh(user)
 
-        fwd_address = forwarding_service.build_forwarding_address(
-            org.forwarding_address_slug or ""
-        )
+        fwd_address = f"scan+{org.forwarding_address_slug or ''}@{settings.FORWARDING_DOMAIN}"
 
     access_token = create_access_token(
         user_id=str(user.id),
@@ -507,9 +503,7 @@ async def me(
     unread_raw = await redis.get(f"notif:{user.id}:unread")
     unread_count = int(unread_raw) if unread_raw else 0
 
-    fwd_address = forwarding_service.build_forwarding_address(
-        org.forwarding_address_slug or ""
-    )
+    fwd_address = f"scan+{org.forwarding_address_slug or ''}@{settings.FORWARDING_DOMAIN}"
 
     return MeResponse(
         id=user.id,
