@@ -1128,7 +1128,6 @@ outline-offset: 2px;
                         </div>
 
                         <!-- Paste Email tab panel -->
-                        <!-- TODO: Backend — submit form to POST /api/analysis/manual with { sender, subject, body, addToTraining } -->
                         <div id="analyse-tab-paste" role="tabpanel" aria-labelledby="analyse-tab-paste-btn" class="max-w-3xl mx-auto">
                             <div class="bg-white rounded-2xl border border-slate-200 shadow-sm p-5">
                                 <form id="ma-form" class="space-y-4" onsubmit="analyzeEmail(event)">
@@ -4582,8 +4581,14 @@ outline-offset: 2px;
             const message = document.getElementById("ma-message");
             const button  = document.getElementById("ma-btn");
 
+            if (!subject && !body) {
+                message.textContent = "Please fill in at least the subject and email body.";
+                message.classList.remove("hidden");
+                document.getElementById("ma-body").focus();
+                return;
+            }
             if (!body) {
-                message.textContent = "Paste email content before analysing.";
+                message.textContent = "Please paste the email content before analysing.";
                 message.classList.remove("hidden");
                 document.getElementById("ma-body").focus();
                 return;

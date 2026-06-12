@@ -104,6 +104,8 @@ async def paste_analysis(
         status="pending",
         received_at=datetime.now(timezone.utc),
         added_to_training=body.add_to_training,
+        sender=body.sender,
+        subject=body.subject,
         body_text=body.raw_source,
     )
     db.add(email_record)
