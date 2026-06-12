@@ -214,8 +214,9 @@ class EmailDetail(BaseModel):
 class HelpRequestBody(BaseModel):
     """Owner/contributor asks other workspace members to review an email."""
 
-    user_ids: list[uuid.UUID] = Field(..., min_length=1, max_length=20)
+    user_ids: list[uuid.UUID] = Field(default_factory=list, max_length=20)
     note: Optional[str] = Field(None, max_length=500)
+    external_email: Optional[str] = Field(None, max_length=320)
 
 
 class HelpRequestResponse(BaseModel):

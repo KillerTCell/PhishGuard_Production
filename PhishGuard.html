@@ -520,7 +520,21 @@ outline-offset: 2px;
                             <h3 id="help-modal-title" style="font-size:17px;font-weight:600;color:#111827;margin-bottom:4px">Request Analysis Help</h3>
                             <p style="font-size:13px;color:#6B7280;margin-bottom:16px">Select contributors to notify:</p>
                             <div id="help-user-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;max-height:220px;overflow-y:auto"></div>
-                            <label for="help-note" style="display:block;font-size:13px;font-weight:500;color:#374151;margin-bottom:6px">Add a note (optional):</label>
+
+                            <div style="margin:14px 0 0;padding-top:14px;border-top:1px solid #E5E7EB;">
+                                <label style="font-size:12px;font-weight:500;color:#6B7280;display:block;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.05em;">Invite someone by email</label>
+                                <input
+                                    type="email"
+                                    id="externalHelpEmail"
+                                    placeholder="colleague@example.com"
+                                    style="width:100%;padding:8px 12px;border:1px solid #E5E7EB;border-radius:8px;font-size:14px;color:#111827;background:white;outline:none;box-sizing:border-box;"
+                                />
+                                <p style="font-size:11px;color:#6B7280;margin:5px 0 0;line-height:1.5;">
+                                    They will receive an invitation email with a link to this analysis. If they already have a PhishGuard account they will be prompted to log in. If not, they can create one first.
+                                </p>
+                            </div>
+
+                            <label for="help-note" style="display:block;font-size:13px;font-weight:500;color:#374151;margin-bottom:6px;margin-top:16px;">Add a note (optional):</label>
                             <textarea id="help-note" maxlength="500"
                                 placeholder="I'm not sure about this one — could you take a look?"
                                 style="width:100%;min-height:72px;padding:10px;border-radius:8px;border:1px solid #E5E7EB;font-size:13px;resize:vertical;font-family:inherit"></textarea>
@@ -4588,8 +4602,9 @@ outline-offset: 2px;
 
         async function submitHelpRequest() {
             const ids = Array.from(document.querySelectorAll('.help-user-cb:checked')).map(cb => cb.value);
-            if (!ids.length) {
-                showAppMessage('Select at least one person to notify.');
+            const externalEmail = document.getElementById('externalHelpEmail')?.value?.trim() || null;
+            if (!ids.length && !externalEmail) {
+                showAppMessage('Select at least one person to notify, or enter an external email.');
                 return;
             }
             const note = document.getElementById('help-note')?.value.trim() || '';
@@ -4599,19 +4614,20 @@ outline-offset: 2px;
             try {
                 const resp = await apiFetch(`/emails/${window._helpRequestEmailId}/request-help`, {
                     method: 'POST',
-                    body: JSON.stringify({ user_ids: ids, note: note || null }),
+                    body: JSON.stringify({ user_ids: ids, note: note || null, external_email: externalEmail }),
                 });
                 if (resp.status === 202 || resp.ok) {
                     const data = await resp.json().catch(() => ({}));
                     const n = data.notified ?? ids.length;
-                    showAppMessage(`Help request sent to ${n} contributor${n !== 1 ? 's' : ''}.`);
+                    showAppMessage(`Help request sent to ${n} recipient${n !== 1 ? 's' : ''}.`);
                     addNotification({
                         event:     'help_requested',
                         title:     'Help Request Sent',
-                        message:   `${n} workspace member${n !== 1 ? 's' : ''} notified about this email.`,
+                        message:   `${n} recipient${n !== 1 ? 's' : ''} notified about this email.`,
                         severity:  'info',
                         timestamp: new Date().toISOString(),
                     });
+                    document.getElementById('externalHelpEmail').value = '';
                     closeHelpRequestModal();
                 } else {
                     const err = await resp.json().catch(() => ({}));

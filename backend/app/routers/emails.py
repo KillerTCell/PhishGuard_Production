@@ -480,7 +480,29 @@ async def request_help(
         if sent:
             notified_emails.append(recipient.email)
 
-    skipped = len(body.user_ids) - len(notified_emails)
+    # External email: send help-request notification to an address not in the org.
+    # Same branded HTML email; deep link leads to login page for non-members.
+    if body.external_email:
+        ext_result = await db.execute(
+            select(User).where(User.email == body.external_email)
+        )
+        ext_user = ext_result.scalar_one_or_none()
+        ext_name = ext_user.full_name if ext_user else body.external_email.split("@")[0]
+        ext_html = resend_service.build_help_request_html(
+            recipient_name=ext_name,
+            requester_name=current_user.full_name,
+            email=email,
+            risk_score=risk_score,
+            band_label=band_label,
+            note=body.note,
+            deep_link=deep_link,
+        )
+        ext_subject = f"[PhishGuard] {current_user.full_name} has shared an email for your review"
+        ext_sent = await resend_service.send_digest_email(body.external_email, ext_html, ext_subject)
+        if ext_sent:
+            notified_emails.append(body.external_email)
+
+    skipped = len(body.user_ids) - (len(notified_emails) - (1 if body.external_email and body.external_email in notified_emails else 0))
 
     await audit_service.write_audit_log(
         db,
