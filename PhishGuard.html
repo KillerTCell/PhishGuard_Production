@@ -91,19 +91,24 @@ outline-offset: 2px;
 /* ── Landing page ─────────────────────────────────────────── */
 .pg-hero-grid {
   display: flex;
-  min-height: 100vh;
-  padding: 0 5%;
+  flex-direction: row;
   align-items: center;
+  min-height: 100vh;
+  width: 100%;
+  padding: 120px 5% 80px 5%;
+  box-sizing: border-box;
   gap: 40px;
 }
 .pg-hero-left {
-  flex: 0 0 55%;
-  max-width: 55%;
+  flex: 0 0 50%;
+  max-width: 50%;
+  box-sizing: border-box;
 }
 .pg-hero-right {
+  display: block;
   flex: 1;
-  position: relative;
-  height: 520px;
+  min-width: 0;
+  min-height: 400px;
 }
 .pg-how-grid {
   display: flex;
@@ -126,17 +131,62 @@ outline-offset: 2px;
   justify-content: center;
   flex-wrap: wrap;
 }
-@media (max-width: 768px) {
+/* Large desktop — 1440px+ */
+@media (min-width: 1440px) {
+  .pg-hero-left {
+    max-width: 520px;
+  }
+}
+/* Standard desktop — 1024px to 1439px */
+@media (min-width: 1024px) and (max-width: 1439px) {
+  .pg-hero-left {
+    flex: 0 0 52%;
+    max-width: 52%;
+  }
+}
+/* Tablet — 768px to 1023px */
+@media (min-width: 768px) and (max-width: 1023px) {
   .pg-hero-grid {
-    flex-direction: column;
-    min-height: auto;
-    padding: 40px 20px;
+    flex-direction: row !important;
+    padding: 100px 4% 60px !important;
   }
   .pg-hero-left {
-    flex: none;
-    max-width: 100%;
+    flex: 0 0 58% !important;
+    max-width: 58% !important;
   }
-  .pg-hero-right { display: none; }
+  .pg-hero-right {
+    flex: 1 !important;
+  }
+  .pg-hero-left h1 {
+    font-size: 40px !important;
+  }
+}
+/* Mobile — below 768px */
+@media (max-width: 767px) {
+  .pg-hero-grid {
+    flex-direction: column !important;
+    padding: 100px 24px 60px !important;
+    min-height: auto !important;
+  }
+  .pg-hero-left {
+    flex: none !important;
+    max-width: 100% !important;
+    width: 100% !important;
+  }
+  .pg-hero-right {
+    display: none !important;
+  }
+  .pg-hero-left h1 {
+    font-size: 38px !important;
+    line-height: 1.1 !important;
+  }
+  .pg-hero-left p {
+    font-size: 16px !important;
+  }
+  .pg-pills-row {
+    flex-wrap: nowrap !important;
+    overflow-x: auto;
+  }
   .pg-how-grid { flex-direction: column; }
   .pg-how-card { min-width: auto; }
   .pg-cta-buttons { flex-direction: column; align-items: center; }
@@ -185,44 +235,47 @@ outline-offset: 2px;
     </nav>
 
     <!-- Hero Section -->
-    <section class="relative min-h-screen bg-cover bg-right-top bg-no-repeat" style="background-image: url('Landing_Page_Background.png');">
-        <div class="w-full md:w-1/2 pt-36 pb-20 px-6 md:pl-[5%] flex flex-col justify-center min-h-screen">
+    <section style="background-image:url('Landing_Page_Background.png');background-size:cover;background-position:center top;background-repeat:no-repeat;background-attachment:scroll;min-height:100vh;width:100%;">
+        <div class="pg-hero-grid">
+            <div class="pg-hero-left">
 
-            <h1 class="text-5xl md:text-6xl lg:text-7xl font-extrabold text-[#0F172A] leading-tight tracking-tight mb-4">
-                Is Your<br>Email Safe?
-            </h1>
+                <h1 style="font-size:clamp(36px,4.5vw,68px);line-height:1.08;letter-spacing:-0.03em;font-weight:900;color:#0F172A;margin:0 0 16px;font-family:Arial,sans-serif;">
+                    Is Your<br>Email Safe?
+                </h1>
 
-            <p class="text-xl text-[#64748B] leading-relaxed mb-7 max-w-md">
-                Paste it here. Our AI checks for phishing signals in seconds.
-            </p>
+                <p class="text-xl text-[#64748B] leading-relaxed mb-7 max-w-md">
+                    Paste it here. Our AI checks for phishing signals in seconds.
+                </p>
 
-            <div class="bg-white rounded-2xl p-5 max-w-[400px] shadow-[0_2px_20px_rgba(0,0,0,0.08)]">
-                <textarea id="publicCheckInput" class="w-full h-36 border-[1.5px] border-[#E2E8F0] rounded-xl p-3.5 text-base text-[#0F172A] placeholder-[#94A3B8] resize-y outline-none focus:border-[#0F766E] transition-colors box-border" placeholder="Paste email content here..."></textarea>
+                <div style="background:#FFFFFF;border-radius:16px;padding:20px;max-width:420px;width:100%;box-sizing:border-box;box-shadow:0 2px 20px rgba(0,0,0,0.08);">
+                    <textarea id="publicCheckInput" class="w-full h-36 border-[1.5px] border-[#E2E8F0] rounded-xl p-3.5 text-base text-[#0F172A] placeholder-[#94A3B8] resize-y outline-none focus:border-[#0F766E] transition-colors box-border" placeholder="Paste email content here..."></textarea>
 
-                <button id="analyseBtn" onclick="submitPublicCheck()" class="w-full mt-3 py-3.5 bg-[#0F766E] text-white rounded-xl text-lg font-medium cursor-pointer transition-colors hover:bg-teal-800 flex items-center justify-center gap-2">
-                    Analyse Now
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                    <button id="analyseBtn" onclick="submitPublicCheck()" class="w-full mt-3 py-3.5 bg-[#0F766E] text-white rounded-xl text-lg font-medium cursor-pointer transition-colors hover:bg-teal-800 flex items-center justify-center gap-2">
+                        Analyse Now
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                    </button>
+                    <div id="publicCheckError" style="display:none;margin-top:8px;font-size:13px;color:#DC2626;font-family:Arial,sans-serif;"></div>
+                </div>
+
+                <div class="pg-pills-row" style="display:flex;flex-direction:row;flex-wrap:nowrap;gap:8px;align-items:center;margin-top:16px;">
+                    <span style="white-space:nowrap;flex-shrink:0;" class="bg-[#F0FDF4] border border-[#86EFAC] text-[#16A34A] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"></path></svg>
+                        Email looks safe
+                    </span>
+
+                    <span style="white-space:nowrap;flex-shrink:0;" class="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+                        Phishing risk detected
+                    </span>
+                </div>
+
+                <button onclick="loadSampleEmail()" class="mt-3 block text-left text-[#0F766E] text-sm underline bg-transparent border-none cursor-pointer hover:text-teal-800 w-fit">
+                    Load sample phishing email
                 </button>
-                <div id="publicCheckError" style="display:none;margin-top:8px;font-size:13px;color:#DC2626;font-family:Arial,sans-serif;"></div>
+
+                <div id="publicResultArea" class="mt-5"></div>
             </div>
-
-            <div class="mt-4 flex flex-wrap gap-2">
-                <span class="bg-[#F0FDF4] border border-[#86EFAC] text-[#16A34A] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"></path></svg>
-                    Email looks safe
-                </span>
-
-                <span class="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
-                    Phishing risk detected
-                </span>
-            </div>
-
-            <button onclick="loadSampleEmail()" class="mt-3 block text-left text-[#0F766E] text-sm underline bg-transparent border-none cursor-pointer hover:text-teal-800 w-fit">
-                Load sample phishing email
-            </button>
-
-            <div id="publicResultArea" class="mt-5"></div>
+            <div class="pg-hero-right"></div>
         </div>
     </section>
 
