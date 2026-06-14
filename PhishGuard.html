@@ -87,6 +87,60 @@ outline-offset: 2px;
 .opinion-option.sel-phishing  { background:#FEF2F2; border-color:#FCA5A5; }
 .opinion-option.sel-uncertain { background:#FFFBEB; border-color:#FCD34D; }
 .opinion-option.sel-safe      { background:#F0FDF4; border-color:#86EFAC; }
+
+/* ── Landing page ─────────────────────────────────────────── */
+.pg-hero-grid {
+  display: flex;
+  min-height: 100vh;
+  padding: 0 5%;
+  align-items: center;
+  gap: 40px;
+}
+.pg-hero-left {
+  flex: 0 0 55%;
+  max-width: 55%;
+}
+.pg-hero-right {
+  flex: 1;
+  position: relative;
+  height: 520px;
+}
+.pg-how-grid {
+  display: flex;
+  gap: 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.pg-how-card {
+  flex: 1;
+  border: 2px solid #0F766E;
+  border-radius: 16px;
+  padding: 28px 20px;
+  background: #FFFFFF;
+  box-shadow: 0 1px 6px rgba(0,0,0,0.04);
+  text-align: center;
+}
+.pg-cta-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 768px) {
+  .pg-hero-grid {
+    flex-direction: column;
+    min-height: auto;
+    padding: 40px 20px;
+  }
+  .pg-hero-left {
+    flex: none;
+    max-width: 100%;
+  }
+  .pg-hero-right { display: none; }
+  .pg-how-grid { flex-direction: column; }
+  .pg-how-card { min-width: auto; }
+  .pg-cta-buttons { flex-direction: column; align-items: center; }
+}
 </style></head>
 <body class="bg-slate-50 text-slate-800 antialiased h-screen flex overflow-hidden selection:bg-indigo-100 selection:text-indigo-900">
 
@@ -119,6 +173,146 @@ outline-offset: 2px;
     </div>
 
     <a href="#main-content" class="skip-link bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm">Skip to content</a>
+
+    <!-- ═══ PHISHGUARD LANDING PAGE ═══ -->
+    <div id="pgLandingPage" style="display:none">
+
+      <!-- NAVBAR -->
+      <nav style="padding:20px 5%;position:absolute;top:0;left:0;right:0;z-index:10;">
+        <span style="font-size:22px;font-weight:700;color:#0F172A;font-family:Arial,sans-serif;">Phishing<span style="color:#0F766E">Guard</span></span>
+      </nav>
+
+      <!-- HERO -->
+      <section style="background:linear-gradient(160deg,#DBEAFE 0%,#E0F2FE 30%,#F0F9FF 60%,#FFFFFF 100%);position:relative;overflow:hidden;padding-top:80px;">
+        <!-- Sparkle decorations -->
+        <div style="position:absolute;top:15%;left:45%;font-size:18px;color:#93C5FD;opacity:0.7">✦</div>
+        <div style="position:absolute;top:8%;right:15%;font-size:12px;color:#93C5FD;opacity:0.5">✦</div>
+        <div style="position:absolute;top:25%;right:8%;font-size:16px;color:#93C5FD;opacity:0.6">✦</div>
+        <div style="position:absolute;bottom:20%;left:48%;font-size:10px;color:#93C5FD;opacity:0.5">✦</div>
+
+        <div class="pg-hero-grid">
+
+          <!-- LEFT COLUMN -->
+          <div class="pg-hero-left">
+            <h1 style="font-size:clamp(40px,5.5vw,64px);font-weight:900;line-height:1.1;color:#0F172A;margin:0 0 16px;font-family:Arial,sans-serif;">Is Your<br>Email Safe?</h1>
+
+            <p style="font-size:18px;color:#64748B;line-height:1.6;margin:0 0 28px;font-family:Arial,sans-serif;">Paste it here. Our AI checks for<br>phishing signals in seconds.</p>
+
+            <!-- White card -->
+            <div style="background:#FFFFFF;border-radius:16px;padding:20px;max-width:400px;box-shadow:0 2px 20px rgba(0,0,0,0.08);">
+              <textarea id="publicCheckInput" style="width:100%;height:140px;border:1.5px solid #E2E8F0;border-radius:10px;padding:14px;font-size:14px;color:#0F172A;resize:vertical;outline:none;font-family:Arial,sans-serif;box-sizing:border-box;line-height:1.5;" placeholder="Paste email content here..." onfocus="this.style.borderColor='#0F766E'" onblur="this.style.borderColor='#E2E8F0'"></textarea>
+
+              <button onclick="submitPublicCheck()" id="analyseBtn" style="width:100%;margin-top:12px;padding:14px;background:#0F766E;color:#FFFFFF;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;letter-spacing:0.02em;font-family:Arial,sans-serif;transition:background 0.2s;" onmouseover="this.style.background='#0D6B63'" onmouseout="this.style.background='#0F766E'">Analyse Now &rarr;</button>
+
+              <div id="publicCheckError" style="display:none;margin-top:8px;font-size:13px;color:#DC2626;font-family:Arial,sans-serif;"></div>
+            </div>
+
+            <!-- Pills -->
+            <div style="display:flex;gap:8px;margin-top:16px;flex-wrap:wrap;align-items:center;">
+              <span style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border:1px solid #86EFAC;border-radius:20px;background:#F0FDF4;font-size:13px;color:#16A34A;font-family:Arial,sans-serif;">&#10003; Email looks safe</span>
+              <span style="display:inline-flex;align-items:center;gap:5px;padding:6px 14px;border:1px solid #FECACA;border-radius:20px;background:#FEF2F2;font-size:13px;color:#DC2626;font-family:Arial,sans-serif;">&#9888; Phishing risk detected</span>
+            </div>
+
+            <!-- Load sample -->
+            <div style="margin-top:12px;">
+              <button onclick="loadSampleEmail()" style="background:none;border:none;color:#0F766E;font-size:13px;cursor:pointer;text-decoration:underline;font-family:Arial,sans-serif;padding:0;">Load sample phishing email</button>
+            </div>
+
+            <!-- Result renders here -->
+            <div id="publicResultArea" style="margin-top:20px;"></div>
+          </div>
+
+          <!-- RIGHT COLUMN: ILLUSTRATION -->
+          <div class="pg-hero-right">
+            <!-- Outer glow -->
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,rgba(15,118,110,0.07) 0%,transparent 70%);"></div>
+
+            <!-- Envelope top-left -->
+            <div style="position:absolute;top:70px;left:30px;width:88px;height:60px;background:#FFFFFF;border-radius:10px;border:1.5px solid #E2E8F0;box-shadow:0 4px 14px rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:28px;">✉️</div>
+            <!-- Green check -->
+            <div style="position:absolute;top:56px;left:108px;width:26px;height:26px;border-radius:50%;background:#16A34A;color:white;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;">✓</div>
+
+            <!-- Red alert top-right -->
+            <div style="position:absolute;top:40px;right:50px;width:72px;height:52px;background:#FEF2F2;border-radius:10px;border:1.5px solid #FECACA;box-shadow:0 4px 14px rgba(220,38,38,0.12);display:flex;align-items:center;justify-content:center;font-size:24px;">⚠️</div>
+
+            <!-- Dashed arc SVG -->
+            <svg style="position:absolute;top:60px;right:90px;width:80px;height:60px;overflow:visible;" viewBox="0 0 80 60">
+              <path d="M70,10 Q40,-10 10,40" fill="none" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="4,4"/>
+            </svg>
+
+            <!-- Central person -->
+            <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-55%);font-size:110px;line-height:1;filter:hue-rotate(160deg) saturate(1.2);">🧑‍💻</div>
+
+            <!-- Bottom-left envelope -->
+            <div style="position:absolute;bottom:110px;left:10px;width:95px;height:65px;background:#FFFFFF;border-radius:10px;border:1.5px solid #E2E8F0;box-shadow:0 4px 14px rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:30px;transform:rotate(-10deg);">✉️</div>
+
+            <!-- Bottom-right envelope -->
+            <div style="position:absolute;bottom:90px;right:40px;width:88px;height:60px;background:#FFFFFF;border-radius:10px;border:1.5px solid #E2E8F0;box-shadow:0 4px 14px rgba(0,0,0,0.08);display:flex;align-items:center;justify-content:center;font-size:26px;transform:rotate(8deg);">✉️</div>
+
+            <!-- Green check bottom-right -->
+            <div style="position:absolute;bottom:130px;right:25px;width:28px;height:28px;border-radius:50%;background:#16A34A;color:white;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;">✓</div>
+
+            <!-- Cloud -->
+            <div style="position:absolute;bottom:20px;right:20px;font-size:48px;opacity:0.25;">☁️</div>
+
+            <!-- Dots -->
+            <div style="position:absolute;top:180px;right:20px;width:8px;height:8px;border-radius:50%;background:#7DD3D8;opacity:0.5;"></div>
+            <div style="position:absolute;bottom:160px;left:120px;width:6px;height:6px;border-radius:50%;background:#7DD3D8;opacity:0.4;"></div>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- HOW IT WORKS -->
+      <section style="background:#FFFFFF;padding:80px 5% 80px;">
+        <h2 style="font-size:36px;font-weight:800;color:#0F172A;text-align:center;margin:0 0 48px;font-family:Arial,sans-serif;">How it works</h2>
+
+        <div class="pg-how-grid">
+
+          <!-- Card 1 -->
+          <div class="pg-how-card">
+            <div style="width:32px;height:32px;border-radius:50%;background:#0F766E;color:white;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;margin-bottom:20px;">1</div>
+            <div style="font-size:64px;margin-bottom:8px;line-height:1;">📥</div>
+            <h3 style="font-size:18px;font-weight:700;color:#0F172A;margin:12px 0 8px;font-family:Arial,sans-serif;">Paste Your Email</h3>
+            <p style="font-size:14px;color:#64748B;line-height:1.6;margin:0;font-family:Arial,sans-serif;">Copy and paste the content of any email into PhishGuard.</p>
+          </div>
+
+          <!-- Card 2 -->
+          <div class="pg-how-card">
+            <div style="width:32px;height:32px;border-radius:50%;background:#0F766E;color:white;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;margin-bottom:20px;">2</div>
+            <div style="font-size:64px;margin-bottom:8px;line-height:1;">🔍</div>
+            <h3 style="font-size:18px;font-weight:700;color:#0F172A;margin:12px 0 8px;font-family:Arial,sans-serif;">AI Analyses It</h3>
+            <p style="font-size:14px;color:#64748B;line-height:1.6;margin:0;font-family:Arial,sans-serif;">Our AI scans links, content, senders, and patterns in real time.</p>
+          </div>
+
+          <!-- Card 3 -->
+          <div class="pg-how-card">
+            <div style="width:32px;height:32px;border-radius:50%;background:#0F766E;color:white;font-size:16px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:Arial,sans-serif;margin-bottom:20px;">3</div>
+            <div style="font-size:64px;margin-bottom:8px;line-height:1;">✅</div>
+            <h3 style="font-size:18px;font-weight:700;color:#0F172A;margin:12px 0 8px;font-family:Arial,sans-serif;">Get a Clear Answer</h3>
+            <p style="font-size:14px;color:#64748B;line-height:1.6;margin:0;font-family:Arial,sans-serif;">Receive an easy-to-understand verdict with key insights you can trust.</p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- BOTTOM CTA -->
+      <section id="signupSection" style="background:#FFFFFF;padding:60px 5%;text-align:center;border-top:1px solid #F1F5F9;">
+        <div style="font-size:28px;color:#0F766E;margin-bottom:12px;">〜</div>
+        <h2 style="font-size:36px;font-weight:800;color:#0F172A;margin:0 0 32px;font-family:Arial,sans-serif;">Ready to check your inbox?</h2>
+        <div class="pg-cta-buttons">
+          <button onclick="showSignup()" style="padding:14px 36px;background:#0F766E;color:#FFFFFF;border:none;border-radius:50px;font-size:16px;font-weight:600;cursor:pointer;font-family:Arial,sans-serif;transition:background 0.2s;" onmouseover="this.style.background='#0D6B63'" onmouseout="this.style.background='#0F766E'">Sign Up Free</button>
+          <button onclick="showLoginPanel()" style="padding:14px 36px;background:#FFFFFF;color:#0F766E;border:2px solid #0F766E;border-radius:50px;font-size:16px;font-weight:600;cursor:pointer;font-family:Arial,sans-serif;transition:all 0.2s;" onmouseover="this.style.background='#F0FDFA'" onmouseout="this.style.background='#FFFFFF'">Log In</button>
+        </div>
+      </section>
+
+      <!-- FOOTER -->
+      <footer style="border-top:1px solid #E2E8F0;padding:20px 5%;text-align:center;background:#FFFFFF;">
+        <span style="font-size:16px;font-weight:700;color:#0F172A;font-family:Arial,sans-serif;">Phishing<span style="color:#0F766E">Guard</span></span>
+      </footer>
+
+    </div>
+    <!-- ═══ END LANDING PAGE ═══ -->
 
     <!-- AUTH PAGE — sign in / sign up / forgot password -->
     <!--
@@ -6495,14 +6689,16 @@ outline-offset: 2px;
                 if (resetToken) {
                     window._pendingResetToken = resetToken;
                     switchAuthMode('resetPassword');
+                    document.getElementById("login-view").classList.remove("hidden");
                 } else if (inviteToken) {
                     window._pendingInviteToken = inviteToken;
                     switchAuthMode('invite');
                     document.getElementById("invite-accept-name")?.focus();
+                    document.getElementById("login-view").classList.remove("hidden");
                 } else {
-                    document.getElementById("login-email")?.focus();
+                    // Regular unauthenticated visit — show the landing page.
+                    document.getElementById("pgLandingPage").style.display = "block";
                 }
-                document.getElementById("login-view").classList.remove("hidden");
 
                 // Health check — warn if backend is unreachable before sign-in.
                 try {
@@ -6516,6 +6712,112 @@ outline-offset: 2px;
                 }
             }
         });
+
+        // ── Landing page functions ──────────────────────────────────────
+
+        async function submitPublicCheck() {
+            const input  = document.getElementById('publicCheckInput');
+            const btn    = document.getElementById('analyseBtn');
+            const errDiv = document.getElementById('publicCheckError');
+            const text   = input ? input.value.trim() : '';
+
+            if (!text) {
+                input.style.borderColor = '#DC2626';
+                errDiv.textContent = 'Please paste an email first.';
+                errDiv.style.display = 'block';
+                return;
+            }
+            errDiv.style.display = 'none';
+            input.style.borderColor = '#0F766E';
+            btn.textContent = 'Analysing...';
+            btn.disabled = true;
+            btn.style.background = '#0D6B63';
+
+            try {
+                const res = await fetch(API_BASE + '/analysis/public-check', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ raw_content: text }),
+                });
+                if (res.status === 429) {
+                    errDiv.textContent = 'Too many checks — please wait a minute and try again.';
+                    errDiv.style.display = 'block';
+                    return;
+                }
+                if (!res.ok) throw new Error('failed');
+                const data = await res.json();
+                renderPublicResult(data);
+            } catch (_) {
+                errDiv.textContent = 'Check failed — please try again.';
+                errDiv.style.display = 'block';
+            } finally {
+                btn.textContent = 'Analyse Now →';
+                btn.disabled = false;
+                btn.style.background = '#0F766E';
+            }
+        }
+
+        function renderPublicResult(data) {
+            const band  = getRiskBand(data.risk_score || 0);
+            const area  = document.getElementById('publicResultArea');
+            if (!area) return;
+            const features = (data.top_features || []).filter(f => f.score > 0).slice(0, 3);
+            area.innerHTML = `
+              <div style="border-radius:16px;overflow:hidden;border:1px solid ${band.border};box-shadow:0 4px 16px rgba(0,0,0,0.08)">
+                <div style="background:${band.color};padding:20px 24px;text-align:center;color:white">
+                  <div style="font-size:36px;margin-bottom:8px">${band.emoji}</div>
+                  <div style="font-size:22px;font-weight:600;margin-bottom:4px">${band.label}</div>
+                  <div style="font-size:13px;opacity:0.9">${band.action}</div>
+                </div>
+                <div style="background:${band.bg};padding:16px 24px">
+                  ${features.map(f => `
+                    <div style="font-size:13px;color:${band.textColor||band.color};margin-bottom:6px;display:flex;align-items:center;gap:6px">
+                      ⚠ ${escapeHtml(f.name ? f.name.replace(/_/g,' ') : String(f))}
+                    </div>`).join('')}
+                  <div style="margin-top:14px;padding:14px;background:white;border-radius:10px;filter:blur(3px);opacity:0.5;pointer-events:none;font-size:12px;color:#94A3B8;user-select:none">
+                    Full feature breakdown • Auth headers • Link analysis • Confidence score
+                  </div>
+                  <button onclick="showSignup()" style="width:100%;margin-top:12px;padding:12px;background:#0F766E;color:white;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;font-family:Arial,sans-serif;">Sign up free — see full report</button>
+                  <p style="font-size:11px;color:#94A3B8;text-align:center;margin:8px 0 0;font-family:Arial,sans-serif">No account created. Result not saved.</p>
+                </div>
+              </div>`;
+            area.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
+        async function loadSampleEmail() {
+            const input = document.getElementById('publicCheckInput');
+            try {
+                const res  = await fetch(API_BASE + '/analysis/sample');
+                if (!res.ok) throw new Error('failed');
+                const data = await res.json();
+                if (input) input.value = data.raw_source || data.raw_content || data.content || '';
+            } catch (_) {
+                if (input) input.value =
+`From: security-alert@paypa1-secure.com\r\nTo: you@example.com\r\nSubject: Urgent: Verify your PayPal account immediately\r\n\r\nDear Customer,\r\n\r\nYour PayPal account has been temporarily limited due to unauthorized access.\r\nPlease verify your account immediately:\r\nhttp://paypa1-secure.com/verify?token=abc123\r\n\r\nFailure to verify within 24 hours will result in account suspension.\r\n\r\nPayPal Security Team`;
+            }
+            if (input) {
+                input.style.borderColor = '#0F766E';
+                submitPublicCheck();
+            }
+        }
+
+        function scrollToSignup() {
+            const el = document.getElementById('signupSection');
+            if (el) el.scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function showLoginPanel() {
+            document.getElementById('pgLandingPage').style.display = 'none';
+            document.getElementById('login-view').classList.remove('hidden');
+            switchAuthMode('login');
+            document.getElementById('login-email')?.focus();
+        }
+
+        function showSignup() {
+            document.getElementById('pgLandingPage').style.display = 'none';
+            document.getElementById('login-view').classList.remove('hidden');
+            switchAuthMode('signup');
+        }
 
         // All API calls are now wired to the real backend at API_BASE.
         // Change API_BASE to the Railway public URL before production deploy.
