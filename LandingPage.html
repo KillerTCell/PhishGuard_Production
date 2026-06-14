@@ -1,0 +1,136 @@
+<html lang="en"><head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PhishingGuard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+        }
+    </style>
+</head>
+<body class="antialiased bg-white text-[#0F172A]">
+
+    <!-- Navbar -->
+    <nav class="absolute top-0 left-0 w-full px-10 py-5 z-10 flex items-center">
+        <div class="text-xl tracking-tight">
+            <span class="font-semibold text-[#0F172A]">Phishing</span><span class="font-semibold text-[#0F766E]">Guard</span>
+        </div>
+    </nav>
+
+    <!-- Hero Section -->
+    <section class="relative min-h-screen bg-cover bg-right-top bg-no-repeat" style="background-image: url('Landing_Page_Background.png');">
+        <div class="w-full md:w-1/2 pt-36 pb-20 px-6 md:pl-[5%] flex flex-col justify-center min-h-screen">
+            
+            <h1 class="text-5xl md:text-6xl lg:text-7xl font-extrabold text-[#0F172A] leading-tight tracking-tight mb-4">
+                Is Your<br>Email Safe?
+            </h1>
+            
+            <p class="text-xl text-[#64748B] leading-relaxed mb-7 max-w-md">
+                Paste it here. Our AI checks for phishing signals in seconds.
+            </p>
+
+            <div class="bg-white rounded-2xl p-5 max-w-[400px] shadow-[0_2px_20px_rgba(0,0,0,0.08)]">
+                <textarea id="publicCheckInput" class="w-full h-36 border-[1.5px] border-[#E2E8F0] rounded-xl p-3.5 text-base text-[#0F172A] placeholder-[#94A3B8] resize-y outline-none focus:border-[#0F766E] transition-colors box-border" placeholder="Paste email content here..."></textarea>
+                
+                <button id="analyseBtn" onclick="submitPublicCheck()" class="w-full mt-3 py-3.5 bg-[#0F766E] text-white rounded-xl text-lg font-medium cursor-pointer transition-colors hover:bg-teal-800 flex items-center justify-center gap-2">
+                    Analyse Now
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-arrow-right"><path d="M5 12h14"></path><path d="m12 5 7 7-7 7"></path></svg>
+                </button>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-2">
+                <span class="bg-[#F0FDF4] border border-[#86EFAC] text-[#16A34A] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-check"><path d="M20 6 9 17l-5-5"></path></svg>
+                    Email looks safe
+                </span>
+                
+                <span class="bg-[#FEF2F2] border border-[#FECACA] text-[#DC2626] rounded-full px-3.5 py-1.5 text-sm inline-flex items-center gap-1.5">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-triangle-alert"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"></path><path d="M12 9v4"></path><path d="M12 17h.01"></path></svg>
+                    Phishing risk detected
+                </span>
+            </div>
+
+            <button onclick="loadSampleEmail()" class="mt-3 block text-left text-[#0F766E] text-sm underline bg-transparent border-none cursor-pointer hover:text-teal-800 w-fit">
+                Load sample phishing email
+            </button>
+
+            <div id="publicResultArea" class="mt-5"></div>
+        </div>
+    </section>
+
+    <!-- How it works Section -->
+    <section class="bg-white py-20 px-10">
+        <h2 class="text-center text-4xl font-bold text-[#0F172A] tracking-tight mb-12">
+            How it works
+        </h2>
+
+        <div class="flex flex-col md:flex-row gap-6 max-w-5xl mx-auto items-stretch">
+            
+            <!-- Card 1 -->
+            <div class="flex-1 border-2 border-[#0F766E] rounded-2xl p-6 bg-white flex flex-col text-center">
+                <div class="w-9 h-9 rounded-full bg-[#0F766E] text-white text-base font-semibold flex items-center justify-center mb-5 self-start">
+                    1
+                </div>
+                <img src="background_image.png" alt="Paste Your Email" class="w-full max-h-40 object-contain mb-4">
+                <h3 class="text-lg font-semibold text-[#0F172A] mb-2">Paste Your Email</h3>
+                <p class="text-base text-[#64748B] leading-relaxed">
+                    Copy and paste the content of any email into PhishGuard.
+                </p>
+            </div>
+
+            <!-- Card 2 -->
+            <div class="flex-1 border-2 border-[#0F766E] rounded-2xl p-6 bg-white flex flex-col text-center">
+                <div class="w-9 h-9 rounded-full bg-[#0F766E] text-white text-base font-semibold flex items-center justify-center mb-5 self-start">
+                    2
+                </div>
+                <img src="bckroung_image.png" alt="AI Analyses It" class="w-full max-h-40 object-contain mb-4">
+                <h3 class="text-lg font-semibold text-[#0F172A] mb-2">AI Analyses It</h3>
+                <p class="text-base text-[#64748B] leading-relaxed">
+                    Our AI scans links, content, senders, and patterns in real time.
+                </p>
+            </div>
+
+            <!-- Card 3 -->
+            <div class="flex-1 border-2 border-[#0F766E] rounded-2xl p-6 bg-white flex flex-col text-center">
+                <div class="w-9 h-9 rounded-full bg-[#0F766E] text-white text-base font-semibold flex items-center justify-center mb-5 self-start">
+                    3
+                </div>
+                <img src="background_image_3.png" alt="Get a Clear Answer" class="w-full max-h-40 object-contain mb-4">
+                <h3 class="text-lg font-semibold text-[#0F172A] mb-2">Get a Clear Answer</h3>
+                <p class="text-base text-[#64748B] leading-relaxed">
+                    Receive an easy-to-understand verdict with key insights you can trust.
+                </p>
+            </div>
+
+        </div>
+    </section>
+
+    <!-- Bottom CTA Section -->
+    <section class="bg-white py-16 px-10 text-center border-t border-[#F1F5F9]">
+        <div class="flex flex-wrap items-center justify-center gap-3 mb-8">
+            <span class="text-[#0F766E] text-3xl leading-none">✦</span>
+            <h2 class="text-4xl font-bold text-[#0F172A] tracking-tight">
+                Ready to check your inbox?
+            </h2>
+        </div>
+
+        <div class="flex flex-col sm:flex-row gap-4 justify-center items-center">
+            <button onclick="showSignup()" class="w-full sm:w-auto py-3.5 px-10 bg-[#0F766E] text-white rounded-full text-lg font-medium cursor-pointer transition-colors hover:bg-teal-800">
+                Sign Up Free
+            </button>
+            <button onclick="showLoginPanel()" class="w-full sm:w-auto py-3.5 px-10 bg-white text-[#0F766E] border-2 border-[#0F766E] rounded-full text-lg font-medium cursor-pointer transition-colors hover:bg-slate-50">
+                Log In
+            </button>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="border-t border-[#E2E8F0] py-5 px-10 text-center bg-white">
+        <div class="text-base tracking-tight">
+            <span class="font-semibold text-[#0F172A]">Phishing</span><span class="font-semibold text-[#0F766E]">Guard</span>
+        </div>
+    </footer>
+
+
+</body></html>
